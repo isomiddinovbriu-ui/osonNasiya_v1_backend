@@ -35,10 +35,17 @@ async function start() {
   try {
     await client.connect();
     const users = client.db().collection('users');
+    const loginRequests = client.db().collection('login_requests');
+    const regions = client.db().collection('regions');
     await seedSuperAdmin(users, config);
+    await users.createIndex({ login: 1 }, { unique: true });
+    await loginRequests.createIndex({ createdAt: -1 });
+    await regions.createIndex({ nameKey: 1 }, { unique: true });
 
     const app = createApp({
       users,
+      loginRequests,
+      regions,
       jwtSecret: config.jwtSecret,
       corsOrigins: config.corsOrigins,
     });

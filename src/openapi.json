@@ -3,12 +3,14 @@
   "info": {
     "title": "OsonNasiya API",
     "version": "0.1.0",
-    "description": "Mobil ilova uchun birinchi API bosqichi: server holati va super-admin autentifikatsiyasi."
+    "description": "Mobil ilova API: autentifikatsiya, xodimlar va hududlar."
   },
   "servers": [{ "url": "/", "description": "Joriy server" }],
   "tags": [
     { "name": "Health", "description": "Server holati" },
-    { "name": "Auth", "description": "Super-admin kirishi" }
+    { "name": "Auth", "description": "Foydalanuvchi kirishi" },
+    { "name": "Users", "description": "Super-admin xodimlarni boshqarishi" },
+    { "name": "Regions", "description": "Hududlar" }
   ],
   "paths": {
     "/health": {
@@ -23,10 +25,63 @@
         }
       }
     },
+    "/regions/{id}": {
+      "parameters": [
+        { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+      ],
+      "get": {
+        "tags": ["Regions"],
+        "summary": "Bitta hududni olish",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Hudud ma'lumotlari",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RegionResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/RegionNotFound" }
+        }
+      },
+      "patch": {
+        "tags": ["Regions"],
+        "summary": "Hududni yangilash",
+        "description": "Super-admin istalgan, sotuvchi o'zi yaratgan hududni yangilaydi.",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateRegionRequest" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Hudud yangilandi",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RegionResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/RegionNotFound" },
+          "409": { "$ref": "#/components/responses/RegionConflict" }
+        }
+      },
+      "delete": {
+        "tags": ["Regions"],
+        "summary": "Hududni o'chirish",
+        "description": "Super-admin istalgan, sotuvchi o'zi yaratgan hududni o'chiradi.",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "204": { "description": "Hudud o'chirildi" },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/RegionNotFound" }
+        }
+      }
+    },
     "/auth/login": {
       "post": {
         "tags": ["Auth"],
-        "summary": "Super-admin login",
+        "summary": "Foydalanuvchi login",
         "description": "Login kichik harfga o'tkaziladi. JWT 12 soat amal qiladi.",
         "requestBody": {
           "required": true,
@@ -53,8 +108,102 @@
         "security": [{ "bearerAuth": [] }],
         "responses": {
           "200": {
-            "description": "Super-admin ma'lumotlari",
+            "description": "Joriy foydalanuvchi ma'lumotlari",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MeResponse" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/users": {
+      "post": {
+        "tags": ["Users"],
+        "summary": "Yiguvchi yoki sotuvchi yaratish",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateUserRequest" } } }
+        },
+        "responses": {
+          "201": {
+            "description": "Xodim yaratildi",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MeResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "409": { "$ref": "#/components/responses/Conflict" }
+        }
+      },
+      "get": {
+        "tags": ["Users"],
+        "summary": "Yiguvchi va sotuvchilar ro'yxati",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Xodimlar ro'yxati",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UsersResponse" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/users/{id}": {
+      "patch": {
+        "tags": ["Users"],
+        "summary": "Xodim ma'lumotlarini yangilash",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateUserRequest" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Xodim yangilandi",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MeResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" }
+        }
+      }
+    },
+    "/regions": {
+      "post": {
+        "tags": ["Regions"],
+        "summary": "Hudud yaratish",
+        "description": "Faqat super_admin va sotuvchi yaratishi mumkin.",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateRegionRequest" } } }
+        },
+        "responses": {
+          "201": {
+            "description": "Hudud yaratildi",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RegionResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "409": { "$ref": "#/components/responses/RegionConflict" }
+        }
+      },
+      "get": {
+        "tags": ["Regions"],
+        "summary": "Hududlar ro'yxati",
+        "description": "Barcha tizimga kirgan foydalanuvchilar ko'ra oladi.",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Hududlar ro'yxati",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RegionsResponse" } } }
           },
           "401": { "$ref": "#/components/responses/Unauthorized" }
         }
@@ -73,6 +222,26 @@
       "Unauthorized": {
         "description": "Token yo'q, tugagan yoki login/parol noto'g'ri",
         "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "Forbidden": {
+        "description": "Bu amal uchun rolga ruxsat yo'q",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "Conflict": {
+        "description": "Login yoki shu foydalanuvchining paroli allaqachon mavjud",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "RegionConflict": {
+        "description": "Hudud nomi allaqachon mavjud",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "RegionNotFound": {
+        "description": "Hudud topilmadi",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "NotFound": {
+        "description": "Xodim topilmadi",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
       }
     },
     "schemas": {
@@ -83,11 +252,13 @@
       },
       "User": {
         "type": "object",
-        "required": ["id", "login", "role"],
+        "required": ["id", "login", "role", "name", "description"],
         "properties": {
           "id": { "type": "string" },
           "login": { "type": "string" },
-          "role": { "type": "string", "enum": ["super_admin"] }
+          "role": { "type": "string", "enum": ["super_admin", "yiguvchi", "sotuvchi"] },
+          "name": { "type": "string", "example": "Ali Valiyev" },
+          "description": { "type": "string", "example": "Toshkent filiali" }
         }
       },
       "LoginRequest": {
@@ -110,6 +281,72 @@
         "type": "object",
         "required": ["user"],
         "properties": { "user": { "$ref": "#/components/schemas/User" } }
+      },
+      "CreateUserRequest": {
+        "type": "object",
+        "required": ["login", "password", "role", "name"],
+        "properties": {
+          "login": { "type": "string", "maxLength": 100, "example": "ali" },
+          "password": { "type": "string", "format": "password", "minLength": 5, "maxLength": 5, "pattern": "^[0-9]{5}$", "example": "12345" },
+          "role": { "type": "string", "enum": ["yiguvchi", "sotuvchi"] },
+          "name": { "type": "string", "maxLength": 100, "example": "Ali Valiyev" },
+          "description": { "type": "string", "maxLength": 1000, "example": "Toshkent filiali" }
+        }
+      },
+      "UpdateUserRequest": {
+        "type": "object",
+        "minProperties": 1,
+        "additionalProperties": false,
+        "properties": {
+          "login": { "type": "string", "maxLength": 100 },
+          "password": { "type": "string", "format": "password", "minLength": 5, "maxLength": 5, "pattern": "^[0-9]{5}$", "example": "54321" },
+          "role": { "type": "string", "enum": ["yiguvchi", "sotuvchi"] },
+          "name": { "type": "string", "maxLength": 100 },
+          "description": { "type": "string", "maxLength": 1000 }
+        }
+      },
+      "UsersResponse": {
+        "type": "object",
+        "required": ["users"],
+        "properties": { "users": { "type": "array", "items": { "$ref": "#/components/schemas/User" } } }
+      },
+      "CreateRegionRequest": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "maxLength": 100, "example": "Toshkent shahri" },
+          "description": { "type": "string", "maxLength": 1000, "example": "Chilonzor va Yakkasaroy" }
+        }
+      },
+      "UpdateRegionRequest": {
+        "type": "object",
+        "minProperties": 1,
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "maxLength": 100 },
+          "description": { "type": "string", "maxLength": 1000 }
+        }
+      },
+      "Region": {
+        "type": "object",
+        "required": ["id", "name", "description", "createdBy", "createdAt"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "createdBy": { "type": "string", "description": "Yaratgan foydalanuvchi IDsi" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "RegionResponse": {
+        "type": "object",
+        "required": ["region"],
+        "properties": { "region": { "$ref": "#/components/schemas/Region" } }
+      },
+      "RegionsResponse": {
+        "type": "object",
+        "required": ["regions"],
+        "properties": { "regions": { "type": "array", "items": { "$ref": "#/components/schemas/Region" } } }
       },
       "Error": {
         "type": "object",
