@@ -56,9 +56,9 @@ function createApp({ users, loginRequests, regions, customers, productCategories
   registerAuthRoutes(app, { users, loginRequests, jwtSecret, authenticate, logger, now });
   registerUserRoutes(app, { users, authenticate, requireSuperAdmin, logger, now });
   registerRegionRoutes(app, { regions, customers, authenticate, logger, now });
-  registerCustomerRoutes(app, { authenticate, customers, regions, logger, now });
+  registerCustomerRoutes(app, { authenticate, customers, regions, productCategories, products, logger, now });
   if (productCategories && products && imageStorage) {
-    registerCatalogRoutes(app, { authenticate, productCategories, products, imageStorage, logger, now });
+    registerCatalogRoutes(app, { authenticate, productCategories, products, customers, imageStorage, logger, now });
   }
 
   app.use((_req, res) => res.status(404).json({ message: 'Manzil topilmadi.' }));

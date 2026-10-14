@@ -23,6 +23,7 @@ async function start() {
     await loginRequests.createIndex({ createdAt: -1 });
     await regions.createIndex({ nameKey: 1 }, { unique: true });
     await customers.createIndex({ regionId: 1, createdAt: -1 });
+    await customers.createIndex({ productId: 1 });
     await productCategories.createIndex({ parentId: 1, nameKey: 1 }, { unique: true });
     await products.createIndex({ categoryId: 1, createdAt: -1 });
 

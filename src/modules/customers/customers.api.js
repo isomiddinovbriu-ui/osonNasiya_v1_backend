@@ -19,8 +19,14 @@ function publicCustomer(customer) {
     id: customer._id.toString(),
     name: customer.name,
     phoneNumber: customer.phoneNumber,
+    addPhoneNumber: customer.addPhoneNumber ?? null,
     productName: customer.productName,
+    groupId: customer.groupId?.toString() || null,
+    sectionId: customer.sectionId?.toString() || null,
+    productId: customer.productId?.toString() || null,
     regionId: customer.regionId.toString(),
+    lat: customer.lat ?? null,
+    long: customer.long ?? null,
     totalPrice: customer.totalPrice,
     downPayment: customer.downPayment,
     termMonths: customer.termMonths,
@@ -40,7 +46,7 @@ function validPhone(value) {
     value.replace(/\D/g, '').length >= 9 && value.replace(/\D/g, '').length <= 15;
 }
 
-function registerCustomerRoutes(app, { authenticate, customers, regions, logger, now }) {
+function registerCustomerRoutes(app, { authenticate, customers, regions, productCategories, products, logger, now }) {
   app.post('/customers', authenticate, async (req, res) => {
     if (!CREATOR_ROLES.has(res.locals.currentUser.role)) {
       return res.status(403).json({ message: 'Bu amal uchun ruxsat yo‘q.' });
@@ -48,22 +54,39 @@ function registerCustomerRoutes(app, { authenticate, customers, regions, logger,
 
     const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
     const phoneNumber = typeof req.body?.phoneNumber === 'string' ? req.body.phoneNumber.trim() : '';
-    const productName = typeof req.body?.productName === 'string' ? req.body.productName.trim() : '';
+    const addPhoneNumber = req.body?.addPhoneNumber;
     const description = req.body?.description === undefined ? '' : req.body.description;
-    const { regionId, totalPrice, downPayment, termMonths, paymentMethod } = req.body || {};
-    if (!name || name.length > 100 || !validPhone(phoneNumber) || !productName || productName.length > 100 ||
+    const { groupId, sectionId, productId, regionId, lat, long, totalPrice, downPayment, termMonths, paymentMethod } = req.body || {};
+    if (!name || name.length > 100 || !validPhone(phoneNumber) ||
+        (addPhoneNumber !== undefined && addPhoneNumber !== null &&
+          (typeof addPhoneNumber !== 'string' || (addPhoneNumber.trim() !== '' && !validPhone(addPhoneNumber.trim())))) ||
+        !ObjectId.isValid(groupId) || !ObjectId.isValid(sectionId) || !ObjectId.isValid(productId) ||
         !ObjectId.isValid(regionId) || !Number.isSafeInteger(totalPrice) || totalPrice <= 0 ||
+        typeof lat !== 'number' || !Number.isFinite(lat) || lat < -90 || lat > 90 ||
+        typeof long !== 'number' || !Number.isFinite(long) || long < -180 || long > 180 ||
         !Number.isSafeInteger(downPayment) || downPayment < 0 || downPayment > totalPrice ||
         !Number.isInteger(termMonths) || termMonths < 1 || termMonths > 120 ||
         (downPayment > 0 && !PAYMENT_METHODS.has(paymentMethod)) ||
         (downPayment === 0 && paymentMethod !== undefined && paymentMethod !== null) ||
         typeof description !== 'string' || description.length > 1000) {
-      return res.status(400).json({ message: 'Mijoz, hudud, narx, muddat va boshlang‘ich to‘lov ma’lumotlarini to‘g‘ri kiriting.' });
+      return res.status(400).json({ message: 'Mijoz, telefon raqamlari, guruh, bo‘lim, mahsulot, hudud, lat, long, narx, muddat va boshlang‘ich to‘lov ma’lumotlarini to‘g‘ri kiriting.' });
     }
 
     try {
       const region = await regions.findOne({ _id: new ObjectId(regionId) });
       if (!region) return res.status(404).json({ message: 'Hudud topilmadi.' });
+
+      const [group, section, product] = await Promise.all([
+        productCategories.findOne({ _id: new ObjectId(groupId) }),
+        productCategories.findOne({ _id: new ObjectId(sectionId) }),
+        products.findOne({ _id: new ObjectId(productId) }),
+      ]);
+      if (!group || !section || !product) {
+        return res.status(404).json({ message: 'Guruh, bo‘lim yoki mahsulot topilmadi.' });
+      }
+      if (group.parentId || !section.parentId?.equals(group._id) || !product.categoryId.equals(section._id)) {
+        return res.status(400).json({ message: 'Mahsulot, bo‘lim va guruh o‘zaro mos emas.' });
+      }
 
       const createdAt = new Date(now());
       const actor = res.locals.currentUser;
@@ -78,8 +101,14 @@ function registerCustomerRoutes(app, { authenticate, customers, regions, logger,
       const document = {
         name,
         phoneNumber,
-        productName,
+        addPhoneNumber: typeof addPhoneNumber === 'string' && addPhoneNumber.trim() ? addPhoneNumber.trim() : null,
+        productName: product.name,
+        groupId: group._id,
+        sectionId: section._id,
+        productId: product._id,
         regionId: region._id,
+        lat,
+        long,
         totalPrice,
         downPayment,
         termMonths,

@@ -34,7 +34,7 @@
       "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
       "get": { "tags": ["Catalog"], "summary": "Mahsulotni olish", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "Mahsulot", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProductResponse" } } } } } },
       "patch": { "tags": ["Catalog"], "summary": "Mahsulotni yangilash (product_creator)", "security": [{ "bearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateProductRequest" } } } }, "responses": { "200": { "description": "Yangilandi", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProductResponse" } } } } } },
-      "delete": { "tags": ["Catalog"], "summary": "Mahsulot va rasmlarini o'chirish (product_creator)", "security": [{ "bearerAuth": [] }], "responses": { "204": { "description": "O'chirildi" } } }
+      "delete": { "tags": ["Catalog"], "summary": "Savdoga biriktirilmagan mahsulot va rasmlarini o'chirish (product_creator)", "security": [{ "bearerAuth": [] }], "responses": { "204": { "description": "O'chirildi" }, "409": { "description": "Mahsulot mijoz savdosiga biriktirilgan" } } }
     },
     "/products/{id}/images": {
       "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
@@ -243,7 +243,7 @@
       "post": {
         "tags": ["Customers"],
         "summary": "Mijoz va nasiya savdosini yaratish",
-        "description": "Sotuvchi yoki yig'uvchi mijozni hududga bog'laydi. Super-admin ham yaratishi mumkin. Boshlang'ich to'lov shu yozuvda atomik saqlanadi. Summalar butun so'mda.",
+        "description": "Sotuvchi, yig'uvchi yoki super-admin mijozni hududga va katalogdagi mahsulotga bog'laydi. groupId > sectionId > productId bog'lanishi tekshiriladi. Mijoz joylashuvi lat va long bilan saqlanadi. productName mahsulot nomidan olinadi. Boshlang'ich to'lov shu yozuvda atomik saqlanadi. Summalar butun so'mda.",
         "security": [{ "bearerAuth": [] }],
         "requestBody": {
           "required": true,
@@ -257,7 +257,7 @@
           "400": { "$ref": "#/components/responses/BadRequest" },
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "403": { "$ref": "#/components/responses/Forbidden" },
-          "404": { "$ref": "#/components/responses/RegionNotFound" }
+          "404": { "description": "Hudud, guruh, bo'lim yoki mahsulot topilmadi" }
         }
       }
     },
@@ -463,12 +463,17 @@
       "PaymentMethod": { "type": "string", "enum": ["cash", "card", "transfer"] },
       "CreateCustomerRequest": {
         "type": "object",
-        "required": ["name", "phoneNumber", "productName", "regionId", "totalPrice", "downPayment", "termMonths"],
+        "required": ["name", "phoneNumber", "groupId", "sectionId", "productId", "regionId", "lat", "long", "totalPrice", "downPayment", "termMonths"],
         "properties": {
           "name": { "type": "string", "maxLength": 100, "example": "Ali Valiyev" },
           "phoneNumber": { "type": "string", "example": "+998901234567" },
-          "productName": { "type": "string", "maxLength": 100, "example": "Telefon" },
+          "addPhoneNumber": { "type": "string", "nullable": true, "description": "Ixtiyoriy qo'shimcha telefon raqami", "example": "+998901112233" },
+          "groupId": { "type": "string", "description": "Asosiy guruh IDsi" },
+          "sectionId": { "type": "string", "description": "Shu guruhdagi bo'lim IDsi" },
+          "productId": { "type": "string", "description": "Shu bo'limdagi mahsulot IDsi" },
           "regionId": { "type": "string", "description": "Mavjud hudud IDsi" },
+          "lat": { "type": "number", "format": "double", "minimum": -90, "maximum": 90, "example": 41.2995 },
+          "long": { "type": "number", "format": "double", "minimum": -180, "maximum": 180, "example": 69.2401 },
           "totalPrice": { "type": "integer", "minimum": 1, "description": "Jami narx, so'mda", "example": 3000000 },
           "downPayment": { "type": "integer", "minimum": 0, "description": "Boshlang'ich to'lov, so'mda", "example": 500000 },
           "paymentMethod": { "$ref": "#/components/schemas/PaymentMethod", "description": "downPayment > 0 bo'lsa majburiy" },
@@ -490,13 +495,19 @@
       },
       "Customer": {
         "type": "object",
-        "required": ["id", "name", "phoneNumber", "productName", "regionId", "totalPrice", "downPayment", "termMonths", "totalPaid", "remainingBalance", "payments", "createdBy", "createdByRole", "createdAt"],
+        "required": ["id", "name", "phoneNumber", "addPhoneNumber", "productName", "groupId", "sectionId", "productId", "regionId", "lat", "long", "totalPrice", "downPayment", "termMonths", "totalPaid", "remainingBalance", "payments", "createdBy", "createdByRole", "createdAt"],
         "properties": {
           "id": { "type": "string" },
           "name": { "type": "string" },
           "phoneNumber": { "type": "string" },
+          "addPhoneNumber": { "type": "string", "nullable": true, "description": "Qo'shimcha raqam berilmagan yoki eski yozuvlarda null" },
           "productName": { "type": "string" },
+          "groupId": { "type": "string", "nullable": true, "description": "Eski yozuvlarda null bo'lishi mumkin" },
+          "sectionId": { "type": "string", "nullable": true, "description": "Eski yozuvlarda null bo'lishi mumkin" },
+          "productId": { "type": "string", "nullable": true, "description": "Eski yozuvlarda null bo'lishi mumkin" },
           "regionId": { "type": "string" },
+          "lat": { "type": "number", "format": "double", "nullable": true, "description": "Eski yozuvlarda null bo'lishi mumkin" },
+          "long": { "type": "number", "format": "double", "nullable": true, "description": "Eski yozuvlarda null bo'lishi mumkin" },
           "totalPrice": { "type": "integer" },
           "downPayment": { "type": "integer" },
           "termMonths": { "type": "integer" },

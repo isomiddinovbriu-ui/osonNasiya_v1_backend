@@ -35,7 +35,7 @@ function publicProduct(item) {
   };
 }
 
-function registerCatalogRoutes(app, { authenticate, productCategories: categories, products, imageStorage, logger, now }) {
+function registerCatalogRoutes(app, { authenticate, productCategories: categories, products, customers, imageStorage, logger, now }) {
   function editor(_req, res, next) {
     if (res.locals.currentUser.role !== 'product_creator') return res.status(403).json({ message: 'Bu amal uchun product_creator roli kerak.' });
     next();
@@ -171,7 +171,11 @@ function registerCatalogRoutes(app, { authenticate, productCategories: categorie
   app.delete('/products/:id', authenticate, editor, async (req, res) => {
     if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ message: 'Mahsulot ID noto‘g‘ri.' });
     try {
-      const product = await products.findOneAndDelete({ _id: new ObjectId(req.params.id) });
+      const id = new ObjectId(req.params.id);
+      if (await customers.countDocuments({ productId: id }, { limit: 1 })) {
+        return res.status(409).json({ message: 'Bu mahsulot mijoz savdosiga biriktirilgan.' });
+      }
+      const product = await products.findOneAndDelete({ _id: id });
       if (!product) return res.status(404).json({ message: 'Mahsulot topilmadi.' });
       const removed = await Promise.allSettled((product.images || []).map((image) => imageStorage.removeObject(image.objectName)));
       removed.forEach((result) => { if (result.status === 'rejected') logger.error('MinIO rasmini o‘chirishda xatolik:', result.reason); });
