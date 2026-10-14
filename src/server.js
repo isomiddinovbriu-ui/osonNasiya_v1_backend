@@ -1,33 +1,10 @@
 require('dotenv').config();
 
-const bcrypt = require('bcryptjs');
 const { MongoClient } = require('mongodb');
 const { createApp } = require('./app');
-const { readConfig } = require('./config');
-
-async function seedSuperAdmin(users, config) {
-  await users.createIndex({ role: 1 }, {
-    unique: true,
-    partialFilterExpression: { role: 'super_admin' },
-  });
-
-  const existing = await users.findOne({ role: 'super_admin' });
-  if (existing) return;
-
-  if (!config.superAdminLogin || config.superAdminLogin.length > 100 ||
-      !config.superAdminPassword || config.superAdminPassword.length < 12 ||
-      config.superAdminPassword.startsWith('replace-with-')) {
-    throw new Error('Birinchi ishga tushirish uchun SUPER_ADMIN_LOGIN va kamida 12 belgili SUPER_ADMIN_PASSWORD kerak.');
-  }
-
-  await users.insertOne({
-    login: config.superAdminLogin,
-    passwordHash: await bcrypt.hash(config.superAdminPassword, 12),
-    role: 'super_admin',
-    createdAt: new Date(),
-  });
-  console.log('Birinchi super_admin yaratildi.');
-}
+const { seedSuperAdmin } = require('./modules/auth/auth.service');
+const { readConfig } = require('./config/config');
+const { createProductStorage } = require('./config/product-storage');
 
 async function start() {
   const config = readConfig();
@@ -37,15 +14,26 @@ async function start() {
     const users = client.db().collection('users');
     const loginRequests = client.db().collection('login_requests');
     const regions = client.db().collection('regions');
+    const customers = client.db().collection('customers');
+    const productCategories = client.db().collection('product_categories');
+    const products = client.db().collection('products');
+    const imageStorage = createProductStorage(config);
     await seedSuperAdmin(users, config);
     await users.createIndex({ login: 1 }, { unique: true });
     await loginRequests.createIndex({ createdAt: -1 });
     await regions.createIndex({ nameKey: 1 }, { unique: true });
+    await customers.createIndex({ regionId: 1, createdAt: -1 });
+    await productCategories.createIndex({ parentId: 1, nameKey: 1 }, { unique: true });
+    await products.createIndex({ categoryId: 1, createdAt: -1 });
 
     const app = createApp({
       users,
       loginRequests,
       regions,
+      customers,
+      productCategories,
+      products,
+      imageStorage,
       jwtSecret: config.jwtSecret,
       corsOrigins: config.corsOrigins,
     });
