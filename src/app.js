@@ -29,7 +29,7 @@ const docsHtml = `<!doctype html>
 </body>
 </html>`;
 
-function createApp({ users, loginRequests, regions, customers, productCategories, products, imageStorage, jwtSecret, corsOrigins = [], logger = console, now = Date.now }) {
+function createApp({ users, loginRequests, regions, customers, counters, productCategories, products, imageStorage, jwtSecret, corsOrigins = [], logger = console, now = Date.now }) {
   if (!users || !loginRequests || !regions || !customers || !jwtSecret) throw new Error('users, loginRequests, regions, customers va jwtSecret kerak.');
 
   const app = express();
@@ -56,9 +56,9 @@ function createApp({ users, loginRequests, regions, customers, productCategories
   registerAuthRoutes(app, { users, loginRequests, jwtSecret, authenticate, logger, now });
   registerUserRoutes(app, { users, authenticate, requireSuperAdmin, logger, now });
   registerRegionRoutes(app, { regions, customers, authenticate, logger, now });
-  registerCustomerRoutes(app, { authenticate, customers, regions, productCategories, products, logger, now });
+  registerCustomerRoutes(app, { authenticate, customers, counters, regions, productCategories, products, logger, now });
   if (productCategories && products && imageStorage) {
-    registerCatalogRoutes(app, { authenticate, productCategories, products, customers, imageStorage, logger, now });
+    registerCatalogRoutes(app, { authenticate, productCategories, products, customers, counters, imageStorage, logger, now });
   }
 
   app.use((_req, res) => res.status(404).json({ message: 'Manzil topilmadi.' }));

@@ -17,30 +17,33 @@
   ],
   "paths": {
     "/product-categories": {
-      "post": { "tags": ["Catalog"], "summary": "Guruh yoki bo'lim yaratish (product_creator)", "security": [{ "bearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateCategoryRequest" } } } }, "responses": { "201": { "description": "Yaratildi", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CategoryResponse" } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "403": { "$ref": "#/components/responses/Forbidden" }, "409": { "$ref": "#/components/responses/Conflict" } } },
+      "post": { "tags": ["Catalog"], "summary": "Guruh yoki bo'lim yaratish (product_creator yoki super_admin)", "security": [{ "bearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateCategoryRequest" } } } }, "responses": { "201": { "description": "Yaratildi", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CategoryResponse" } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "403": { "$ref": "#/components/responses/Forbidden" }, "409": { "$ref": "#/components/responses/Conflict" } } },
       "get": { "tags": ["Catalog"], "summary": "Guruh va bo'limlar ro'yxati", "description": "parentId=null asosiy guruhlarni, parentId=<id> uning bo'limlarini beradi.", "security": [{ "bearerAuth": [] }], "parameters": [{ "name": "parentId", "in": "query", "schema": { "type": "string" } }], "responses": { "200": { "description": "Ro'yxat", "content": { "application/json": { "schema": { "type": "object", "properties": { "categories": { "type": "array", "items": { "$ref": "#/components/schemas/Category" } } } } } } } } }
     },
     "/product-categories/{id}": {
       "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
       "get": { "tags": ["Catalog"], "summary": "Guruh yoki bo'limni olish", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "Kategoriya", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CategoryResponse" } } } } } },
-      "patch": { "tags": ["Catalog"], "summary": "Guruh yoki bo'lim nomini yangilash (product_creator)", "security": [{ "bearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string", "maxLength": 100 } } } } } }, "responses": { "200": { "description": "Yangilandi", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CategoryResponse" } } } } } },
-      "delete": { "tags": ["Catalog"], "summary": "Bo'sh guruh yoki bo'limni o'chirish (product_creator)", "security": [{ "bearerAuth": [] }], "responses": { "204": { "description": "O'chirildi" }, "409": { "$ref": "#/components/responses/Conflict" } } }
+      "patch": { "tags": ["Catalog"], "summary": "Guruh yoki bo'lim nomini yangilash (product_creator yoki super_admin)", "security": [{ "bearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string", "maxLength": 100 } } } } } }, "responses": { "200": { "description": "Yangilandi", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CategoryResponse" } } } } } },
+      "delete": { "tags": ["Catalog"], "summary": "Bo'sh guruh yoki bo'limni o'chirish (product_creator yoki super_admin)", "security": [{ "bearerAuth": [] }], "responses": { "204": { "description": "O'chirildi" }, "409": { "$ref": "#/components/responses/Conflict" } } }
     },
     "/products": {
-      "post": { "tags": ["Catalog"], "summary": "Bo'limga mahsulot yaratish (product_creator)", "security": [{ "bearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateProductRequest" } } } }, "responses": { "201": { "description": "Yaratildi", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProductResponse" } } } } } },
+      "post": { "tags": ["Catalog"], "summary": "Bo'limga mahsulot yaratish (product_creator yoki super_admin)", "security": [{ "bearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateProductRequest" } } } }, "responses": { "201": { "description": "Yaratildi", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProductResponse" } } } } } },
       "get": { "tags": ["Catalog"], "summary": "Mahsulotlar ro'yxati", "security": [{ "bearerAuth": [] }], "parameters": [{ "name": "categoryId", "in": "query", "schema": { "type": "string" } }], "responses": { "200": { "description": "Ro'yxat", "content": { "application/json": { "schema": { "type": "object", "properties": { "products": { "type": "array", "items": { "$ref": "#/components/schemas/Product" } } } } } } } } }
+    },
+    "/products/search": {
+      "get": { "tags": ["Catalog"], "summary": "Guruh, bo'lim yoki mahsulot bo'yicha qidirish", "description": "Mahsulot nomi, sarlavhasi yoki universalId, bo'lim nomi yoki guruh nomiga mos kelgan mahsulotlarni qaytaradi. Qidiruv harf katta-kichikligiga sezgir emas.", "security": [{ "bearerAuth": [] }], "parameters": [{ "name": "search", "in": "query", "required": true, "schema": { "type": "string", "minLength": 1, "maxLength": 100 } }], "responses": { "200": { "description": "Mos mahsulotlar", "content": { "application/json": { "schema": { "type": "object", "properties": { "products": { "type": "array", "items": { "$ref": "#/components/schemas/Product" } } } } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
     },
     "/products/{id}": {
       "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
       "get": { "tags": ["Catalog"], "summary": "Mahsulotni olish", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "Mahsulot", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProductResponse" } } } } } },
-      "patch": { "tags": ["Catalog"], "summary": "Mahsulotni yangilash (product_creator)", "security": [{ "bearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateProductRequest" } } } }, "responses": { "200": { "description": "Yangilandi", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProductResponse" } } } } } },
-      "delete": { "tags": ["Catalog"], "summary": "Savdoga biriktirilmagan mahsulot va rasmlarini o'chirish (product_creator)", "security": [{ "bearerAuth": [] }], "responses": { "204": { "description": "O'chirildi" }, "409": { "description": "Mahsulot mijoz savdosiga biriktirilgan" } } }
+      "patch": { "tags": ["Catalog"], "summary": "Mahsulotni yangilash (product_creator yoki super_admin)", "security": [{ "bearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateProductRequest" } } } }, "responses": { "200": { "description": "Yangilandi", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProductResponse" } } } } } },
+      "delete": { "tags": ["Catalog"], "summary": "Savdoga biriktirilmagan mahsulot va rasmlarini o'chirish (product_creator yoki super_admin)", "security": [{ "bearerAuth": [] }], "responses": { "204": { "description": "O'chirildi" }, "409": { "description": "Mahsulot mijoz savdosiga biriktirilgan" } } }
     },
     "/products/{id}/images": {
       "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
-      "post": { "tags": ["Catalog"], "summary": "Mahsulotga rasm yuklash (product_creator)", "description": "Jami 10 ta; JPEG, PNG yoki WebP; har biri 5 MB gacha.", "security": [{ "bearerAuth": [] }], "requestBody": { "required": true, "content": { "multipart/form-data": { "schema": { "type": "object", "required": ["images"], "properties": { "images": { "type": "array", "maxItems": 10, "items": { "type": "string", "format": "binary" } } } } } } }, "responses": { "201": { "description": "Yuklandi", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProductResponse" } } } }, "409": { "$ref": "#/components/responses/Conflict" } } }
+      "post": { "tags": ["Catalog"], "summary": "Mahsulotga rasm yuklash (product_creator yoki super_admin)", "description": "Jami 10 ta; JPEG, PNG yoki WebP; har biri 5 MB gacha.", "security": [{ "bearerAuth": [] }], "requestBody": { "required": true, "content": { "multipart/form-data": { "schema": { "type": "object", "required": ["images"], "properties": { "images": { "type": "array", "maxItems": 10, "items": { "type": "string", "format": "binary" } } } } } } }, "responses": { "201": { "description": "Yuklandi", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProductResponse" } } } }, "409": { "$ref": "#/components/responses/Conflict" } } }
     },
-    "/products/{id}/images/{imageId}": { "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }, { "name": "imageId", "in": "path", "required": true, "schema": { "type": "string" } }], "delete": { "tags": ["Catalog"], "summary": "Rasmni o'chirish (product_creator)", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "O'chirildi", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProductResponse" } } } } } } },
+    "/products/{id}/images/{imageId}": { "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }, { "name": "imageId", "in": "path", "required": true, "schema": { "type": "string" } }], "delete": { "tags": ["Catalog"], "summary": "Rasmni o'chirish (product_creator yoki super_admin)", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "O'chirildi", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProductResponse" } } } } } } },
     "/api/public/files/{publicId}": { "parameters": [{ "name": "publicId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }], "get": { "tags": ["Catalog"], "summary": "publicId orqali MinIO rasmini olish", "description": "Certification loyihasidagi kabi publicId doimiy, MinIO obyekt nomi ichki ma'lumot.", "responses": { "200": { "description": "Rasm", "content": { "image/jpeg": { "schema": { "type": "string", "format": "binary" } }, "image/png": { "schema": { "type": "string", "format": "binary" } }, "image/webp": { "schema": { "type": "string", "format": "binary" } } } } } } },
     "/health": {
       "get": {
@@ -228,22 +231,87 @@
       "get": {
         "tags": ["Regions"],
         "summary": "Hududlar ro'yxati",
-        "description": "Barcha tizimga kirgan foydalanuvchilar ko'ra oladi.",
+        "description": "Barcha tizimga kirgan foydalanuvchilar ko'ra oladi. search berilsa hudud nomi bo'yicha qidiradi.",
         "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "search", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 100 } }],
         "responses": {
           "200": {
             "description": "Hududlar ro'yxati",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RegionsResponse" } } }
           },
+          "400": { "$ref": "#/components/responses/BadRequest" },
           "401": { "$ref": "#/components/responses/Unauthorized" }
         }
       }
     },
     "/customers": {
+      "get": {
+        "tags": ["Customers"],
+        "summary": "Mijozlar ro‘yxati va filtrlar",
+        "description": "Filtrlar birga qo‘llanadi. Matn va search katta-kichik harfga sezgir emas, qisman moslikni qidiradi. Min/Max chegaralari ichida. Sana ISO 8601 formatida; faqat YYYY-MM-DD berilgan To sanasi kun oxirigacha olinadi. To‘lov filtrlari bitta to‘lov yozuviga tegishli bo‘ladi. Natija yangi yozuvdan boshlab sahifalanadi.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "mijoz_id", "in": "query", "description": "Ketma-ket mijoz raqami", "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "mijoz_idMin", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "mijoz_idMax", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "regionId", "in": "query", "schema": { "type": "string" } },
+          { "name": "groupId", "in": "query", "schema": { "type": "string" } },
+          { "name": "sectionId", "in": "query", "schema": { "type": "string" } },
+          { "name": "productId", "in": "query", "schema": { "type": "string" } },
+          { "name": "createdBy", "in": "query", "schema": { "type": "string" } },
+          { "name": "paymentId", "in": "query", "schema": { "type": "string" } },
+          { "name": "receivedBy", "in": "query", "schema": { "type": "string" } },
+          { "name": "name", "in": "query", "schema": { "type": "string", "maxLength": 100 } },
+          { "name": "phoneNumber", "in": "query", "description": "Asosiy yoki qo'shimcha telefon raqami bo'yicha qisman qidiradi", "schema": { "type": "string", "maxLength": 100 } },
+          { "name": "productName", "in": "query", "schema": { "type": "string", "maxLength": 100 } },
+          { "name": "description", "in": "query", "schema": { "type": "string", "maxLength": 100 } },
+          { "name": "search", "in": "query", "description": "Ism, telefonlar, mahsulot nomi va izoh bo‘yicha qidiradi", "schema": { "type": "string", "maxLength": 100 } },
+          { "name": "createdByRole", "in": "query", "schema": { "type": "string", "enum": ["super_admin", "sotuvchi", "yiguvchi"] } },
+          { "name": "hasDebt", "in": "query", "schema": { "type": "boolean" } },
+          { "name": "paymentMethod", "in": "query", "schema": { "$ref": "#/components/schemas/PaymentMethod" } },
+          { "name": "paymentType", "in": "query", "schema": { "type": "string", "enum": ["initial", "installment"] } },
+          { "name": "createdFrom", "in": "query", "schema": { "type": "string", "example": "2026-01-01" } },
+          { "name": "createdTo", "in": "query", "schema": { "type": "string", "example": "2026-12-31" } },
+          { "name": "paidFrom", "in": "query", "schema": { "type": "string", "example": "2026-01-01" } },
+          { "name": "paidTo", "in": "query", "schema": { "type": "string", "example": "2026-12-31" } },
+          { "name": "totalPrice", "in": "query", "schema": { "type": "integer" } },
+          { "name": "totalPriceMin", "in": "query", "schema": { "type": "integer" } },
+          { "name": "totalPriceMax", "in": "query", "schema": { "type": "integer" } },
+          { "name": "downPayment", "in": "query", "schema": { "type": "integer" } },
+          { "name": "downPaymentMin", "in": "query", "schema": { "type": "integer" } },
+          { "name": "downPaymentMax", "in": "query", "schema": { "type": "integer" } },
+          { "name": "termMonths", "in": "query", "schema": { "type": "integer" } },
+          { "name": "termMonthsMin", "in": "query", "schema": { "type": "integer" } },
+          { "name": "termMonthsMax", "in": "query", "schema": { "type": "integer" } },
+          { "name": "totalPaid", "in": "query", "schema": { "type": "integer" } },
+          { "name": "totalPaidMin", "in": "query", "schema": { "type": "integer" } },
+          { "name": "totalPaidMax", "in": "query", "schema": { "type": "integer" } },
+          { "name": "remainingBalance", "in": "query", "schema": { "type": "integer" } },
+          { "name": "remainingBalanceMin", "in": "query", "schema": { "type": "integer" } },
+          { "name": "remainingBalanceMax", "in": "query", "schema": { "type": "integer" } },
+          { "name": "paymentAmount", "in": "query", "schema": { "type": "integer" } },
+          { "name": "paymentAmountMin", "in": "query", "schema": { "type": "integer" } },
+          { "name": "paymentAmountMax", "in": "query", "schema": { "type": "integer" } },
+          { "name": "lat", "in": "query", "schema": { "type": "number" } },
+          { "name": "latMin", "in": "query", "schema": { "type": "number" } },
+          { "name": "latMax", "in": "query", "schema": { "type": "number" } },
+          { "name": "long", "in": "query", "schema": { "type": "number" } },
+          { "name": "longMin", "in": "query", "schema": { "type": "number" } },
+          { "name": "longMax", "in": "query", "schema": { "type": "number" } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1, "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } }
+        ],
+        "responses": {
+          "200": { "description": "Sahifalangan mijozlar", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CustomerListResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      },
       "post": {
         "tags": ["Customers"],
         "summary": "Mijoz va nasiya savdosini yaratish",
-        "description": "Sotuvchi, yig'uvchi yoki super-admin mijozni hududga va katalogdagi mahsulotga bog'laydi. groupId > sectionId > productId bog'lanishi tekshiriladi. Mijoz joylashuvi lat va long bilan saqlanadi. productName mahsulot nomidan olinadi. Boshlang'ich to'lov shu yozuvda atomik saqlanadi. Summalar butun so'mda.",
+        "description": "Sotuvchi, yig'uvchi yoki super-admin mijozni hududga va katalogdagi mahsulotga bog'laydi. groupId > sectionId > productId bog'lanishi tekshiriladi. totalPrice mahsulotning minSellingPrice qiymatidan kam bo'lmasligi kerak. Mijoz joylashuvi lat va long bilan saqlanadi. productName mahsulot nomidan olinadi. Boshlang'ich to'lov shu yozuvda atomik saqlanadi. Summalar butun so'mda.",
         "security": [{ "bearerAuth": [] }],
         "requestBody": {
           "required": true,
@@ -261,12 +329,12 @@
         }
       }
     },
-    "/customers/{id}": {
+    "/customers/{mijoz_id}": {
       "get": {
         "tags": ["Customers"],
         "summary": "Mijoz va to'lov tarixini olish",
         "security": [{ "bearerAuth": [] }],
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "parameters": [{ "name": "mijoz_id", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } }],
         "responses": {
           "200": {
             "description": "Mijoz ma'lumotlari",
@@ -278,13 +346,13 @@
         }
       }
     },
-    "/customers/{id}/payments": {
+    "/customers/{mijoz_id}/payments": {
       "post": {
         "tags": ["Payments"],
         "summary": "Mijozning keyingi to'lovini yozish",
         "description": "To'lov va qoldiq bitta MongoDB hujjatida atomik yangilanadi. Summa qolgan qarzdan oshmasligi kerak.",
         "security": [{ "bearerAuth": [] }],
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "parameters": [{ "name": "mijoz_id", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } }],
         "requestBody": {
           "required": true,
           "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AddPaymentRequest" } } }
@@ -352,10 +420,10 @@
       "CreateCategoryRequest": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string", "maxLength": 100, "example": "Texnika" }, "parentId": { "type": "string", "nullable": true, "description": "Texnika IDsi berilsa Telefon kabi bo'lim yaratiladi" } } },
       "Category": { "type": "object", "required": ["id", "name", "parentId", "createdBy", "createdAt"], "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "parentId": { "type": "string", "nullable": true }, "createdBy": { "type": "string" }, "createdAt": { "type": "string", "format": "date-time" }, "updatedAt": { "type": "string", "format": "date-time", "nullable": true } } },
       "CategoryResponse": { "type": "object", "properties": { "category": { "$ref": "#/components/schemas/Category" } } },
-      "CreateProductRequest": { "type": "object", "required": ["name", "title", "categoryId"], "properties": { "name": { "type": "string", "maxLength": 100, "example": "Samsung A55" }, "title": { "type": "string", "maxLength": 200, "example": "Samsung Galaxy A55 256GB" }, "categoryId": { "type": "string", "description": "Bo'lim IDsi" } } },
-      "UpdateProductRequest": { "type": "object", "minProperties": 1, "additionalProperties": false, "properties": { "name": { "type": "string", "maxLength": 100 }, "title": { "type": "string", "maxLength": 200 }, "categoryId": { "type": "string" } } },
+      "CreateProductRequest": { "type": "object", "required": ["name", "title", "categoryId", "originalPrice", "minSellingPrice"], "properties": { "name": { "type": "string", "maxLength": 100, "example": "Samsung A55" }, "title": { "type": "string", "maxLength": 200, "example": "Samsung Galaxy A55 256GB" }, "categoryId": { "type": "string", "description": "Bo'lim IDsi" }, "originalPrice": { "type": "integer", "minimum": 1, "description": "Asl narx, so'mda", "example": 3000000 }, "minSellingPrice": { "type": "integer", "minimum": 1, "description": "Eng past sotilish narxi, so'mda", "example": 2800000 } } },
+      "UpdateProductRequest": { "type": "object", "minProperties": 1, "additionalProperties": false, "properties": { "name": { "type": "string", "maxLength": 100 }, "title": { "type": "string", "maxLength": 200 }, "categoryId": { "type": "string" }, "originalPrice": { "type": "integer", "minimum": 1 }, "minSellingPrice": { "type": "integer", "minimum": 1 } } },
       "ProductImage": { "type": "object", "properties": { "id": { "type": "string" }, "publicId": { "type": "string", "format": "uuid" }, "url": { "type": "string", "description": "Public fayl URLi; MinIO obyekt nomidan mustaqil" } } },
-      "Product": { "type": "object", "required": ["id", "name", "title", "categoryId", "images", "createdBy", "createdAt"], "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "title": { "type": "string" }, "categoryId": { "type": "string" }, "images": { "type": "array", "maxItems": 10, "items": { "$ref": "#/components/schemas/ProductImage" } }, "createdBy": { "type": "string" }, "createdAt": { "type": "string", "format": "date-time" }, "updatedAt": { "type": "string", "format": "date-time", "nullable": true } } },
+      "Product": { "type": "object", "required": ["id", "universalId", "name", "title", "categoryId", "originalPrice", "minSellingPrice", "images", "createdBy", "createdAt"], "properties": { "id": { "type": "string" }, "universalId": { "type": "string", "pattern": "^UD-[0-9]{9,}$", "example": "UD-261015001", "description": "UD + Toshkent sanasi YYMMDD + kunlik tartib raqami (kamida 3 xonali)" }, "name": { "type": "string" }, "title": { "type": "string" }, "categoryId": { "type": "string" }, "originalPrice": { "type": "integer", "nullable": true, "description": "Eski mahsulotlarda null bo'lishi mumkin" }, "minSellingPrice": { "type": "integer", "nullable": true, "description": "Eski mahsulotlarda null bo'lishi mumkin" }, "images": { "type": "array", "maxItems": 10, "items": { "$ref": "#/components/schemas/ProductImage" } }, "createdBy": { "type": "string" }, "createdAt": { "type": "string", "format": "date-time" }, "updatedAt": { "type": "string", "format": "date-time", "nullable": true } } },
       "ProductResponse": { "type": "object", "properties": { "product": { "$ref": "#/components/schemas/Product" } } },
       "Health": {
         "type": "object",
@@ -460,7 +528,7 @@
         "required": ["regions"],
         "properties": { "regions": { "type": "array", "items": { "$ref": "#/components/schemas/Region" } } }
       },
-      "PaymentMethod": { "type": "string", "enum": ["cash", "card", "transfer"] },
+      "PaymentMethod": { "type": "string", "enum": ["cash", "transfer"], "description": "cash — naqd, transfer — o‘tkazma" },
       "CreateCustomerRequest": {
         "type": "object",
         "required": ["name", "phoneNumber", "groupId", "sectionId", "productId", "regionId", "lat", "long", "totalPrice", "downPayment", "termMonths"],
@@ -495,9 +563,9 @@
       },
       "Customer": {
         "type": "object",
-        "required": ["id", "name", "phoneNumber", "addPhoneNumber", "productName", "groupId", "sectionId", "productId", "regionId", "lat", "long", "totalPrice", "downPayment", "termMonths", "totalPaid", "remainingBalance", "payments", "createdBy", "createdByRole", "createdAt"],
+        "required": ["mijoz_id", "name", "phoneNumber", "addPhoneNumber", "productName", "groupId", "sectionId", "productId", "regionId", "lat", "long", "totalPrice", "downPayment", "termMonths", "totalPaid", "remainingBalance", "payments", "createdBy", "createdByRole", "createdAt"],
         "properties": {
-          "id": { "type": "string" },
+          "mijoz_id": { "type": "integer", "minimum": 1, "description": "Counter kolleksiyasi orqali avtomatik beriladigan ketma-ket raqam" },
           "name": { "type": "string" },
           "phoneNumber": { "type": "string" },
           "addPhoneNumber": { "type": "string", "nullable": true, "description": "Qo'shimcha raqam berilmagan yoki eski yozuvlarda null" },
@@ -524,6 +592,16 @@
         "type": "object",
         "required": ["customer"],
         "properties": { "customer": { "$ref": "#/components/schemas/Customer" } }
+      },
+      "CustomerListResponse": {
+        "type": "object",
+        "required": ["customers", "total", "page", "limit"],
+        "properties": {
+          "customers": { "type": "array", "items": { "$ref": "#/components/schemas/Customer" } },
+          "total": { "type": "integer" },
+          "page": { "type": "integer" },
+          "limit": { "type": "integer" }
+        }
       },
       "AddPaymentRequest": {
         "type": "object",

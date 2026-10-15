@@ -32,9 +32,16 @@ function registerRegionRoutes(app, { regions, customers, authenticate, logger, n
     }
   });
 
-  app.get('/regions', authenticate, async (_req, res) => {
+  app.get('/regions', authenticate, async (req, res) => {
+    const search = req.query.search;
+    if (search !== undefined && (typeof search !== 'string' || !search.trim() || search.trim().length > 100)) {
+      return res.status(400).json({ message: 'Qidiruv so‘zini to‘g‘ri kiriting (100 belgigacha).' });
+    }
     try {
-      const items = await regions.find({}).sort({ createdAt: -1 }).toArray();
+      const filter = search === undefined ? {} : {
+        name: new RegExp(search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'),
+      };
+      const items = await regions.find(filter).sort({ createdAt: -1 }).toArray();
       return res.json({ regions: items.map(publicRegion) });
     } catch (error) {
       logger.error('Hududlarni olishda xatolik:', error);

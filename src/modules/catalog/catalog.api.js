@@ -1,6 +1,7 @@
 const crypto = require('node:crypto');
 const multer = require('multer');
 const { ObjectId } = require('mongodb');
+const { nextProductUniversalId } = require('./product-id.service');
 
 const MAX_IMAGES = 10;
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
@@ -24,8 +25,10 @@ function publicCategory(item) {
 
 function publicProduct(item) {
   return {
-    id: item._id.toString(), categoryId: item.categoryId.toString(),
+    id: item._id.toString(), universalId: item.universalId, categoryId: item.categoryId.toString(),
     name: item.name, title: item.title,
+    originalPrice: item.originalPrice ?? null,
+    minSellingPrice: item.minSellingPrice ?? null,
     images: (item.images || []).map((image) => ({
       id: image._id.toString(), publicId: image.publicId,
       url: `/api/public/files/${image.publicId}`,
@@ -35,9 +38,15 @@ function publicProduct(item) {
   };
 }
 
-function registerCatalogRoutes(app, { authenticate, productCategories: categories, products, customers, imageStorage, logger, now }) {
+function searchPattern(value) {
+  return new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+}
+
+function registerCatalogRoutes(app, { authenticate, productCategories: categories, products, customers, counters, imageStorage, logger, now }) {
   function editor(_req, res, next) {
-    if (res.locals.currentUser.role !== 'product_creator') return res.status(403).json({ message: 'Bu amal uchun product_creator roli kerak.' });
+    if (!['product_creator', 'super_admin'].includes(res.locals.currentUser.role)) {
+      return res.status(403).json({ message: 'Bu amal uchun product_creator yoki super_admin roli kerak.' });
+    }
     next();
   }
 
@@ -112,13 +121,19 @@ function registerCatalogRoutes(app, { authenticate, productCategories: categorie
   }
 
   app.post('/products', authenticate, editor, async (req, res) => {
-    const { name, title, categoryId } = req.body || {};
-    if (!validName(name) || typeof title !== 'string' || !title.trim() || title.length > 200 || !ObjectId.isValid(categoryId)) return res.status(400).json({ message: 'Mahsulot nomi, sarlavhasi va bo‘limini kiriting.' });
+    const { name, title, categoryId, originalPrice, minSellingPrice } = req.body || {};
+    if (!validName(name) || typeof title !== 'string' || !title.trim() || title.length > 200 ||
+        !ObjectId.isValid(categoryId) || !Number.isSafeInteger(originalPrice) || originalPrice <= 0 ||
+        !Number.isSafeInteger(minSellingPrice) || minSellingPrice <= 0) {
+      return res.status(400).json({ message: 'Mahsulot nomi, sarlavhasi, bo‘limi va narxlarini to‘g‘ri kiriting.' });
+    }
     try {
       const category = await validLeaf(categoryId);
       if (!category) return res.status(404).json({ message: 'Mahsulot bo‘limi topilmadi.' });
-      const document = { name: name.trim(), title: title.trim(), categoryId: category._id, images: [],
+      const document = { name: name.trim(), title: title.trim(), categoryId: category._id,
+        originalPrice, minSellingPrice, images: [],
         createdBy: res.locals.currentUser._id, createdAt: new Date(now()) };
+      document.universalId = await nextProductUniversalId(counters, document.createdAt);
       const result = await products.insertOne(document);
       return res.status(201).json({ product: publicProduct({ ...document, _id: result.insertedId }) });
     } catch (error) { return fail(res, error, 'Mahsulot yaratishda xatolik:'); }
@@ -133,6 +148,24 @@ function registerCatalogRoutes(app, { authenticate, productCategories: categorie
     } catch (error) { return fail(res, error, 'Mahsulotlarni olishda xatolik:'); }
   });
 
+  app.get('/products/search', authenticate, async (req, res) => {
+    const search = req.query.search;
+    if (typeof search !== 'string' || !search.trim() || search.trim().length > 100) {
+      return res.status(400).json({ message: 'Qidiruv so‘zini kiriting (100 belgigacha).' });
+    }
+    try {
+      const pattern = searchPattern(search.trim());
+      const matchingCategories = await categories.find({ name: pattern }).toArray();
+      const groupIds = matchingCategories.filter((item) => !item.parentId).map((item) => item._id);
+      const sections = groupIds.length ? await categories.find({ parentId: { $in: groupIds } }).toArray() : [];
+      const sectionIds = [...matchingCategories.filter((item) => item.parentId), ...sections].map((item) => item._id);
+      const items = await products.find({ $or: [
+        { name: pattern }, { title: pattern }, { universalId: pattern }, { categoryId: { $in: sectionIds } },
+      ] }).sort({ createdAt: -1 }).toArray();
+      return res.json({ products: items.map(publicProduct) });
+    } catch (error) { return fail(res, error, 'Mahsulotlarni qidirishda xatolik:'); }
+  });
+
   app.get('/products/:id', authenticate, async (req, res) => {
     if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ message: 'Mahsulot ID noto‘g‘ri.' });
     try {
@@ -143,7 +176,7 @@ function registerCatalogRoutes(app, { authenticate, productCategories: categorie
 
   app.patch('/products/:id', authenticate, editor, async (req, res) => {
     if (!ObjectId.isValid(req.params.id) || !req.body || typeof req.body !== 'object' || Array.isArray(req.body) ||
-        !Object.keys(req.body).length || Object.keys(req.body).some((field) => !['name', 'title', 'categoryId'].includes(field))) return res.status(400).json({ message: 'Mahsulot maydonlarini to‘g‘ri kiriting.' });
+        !Object.keys(req.body).length || Object.keys(req.body).some((field) => !['name', 'title', 'categoryId', 'originalPrice', 'minSellingPrice'].includes(field))) return res.status(400).json({ message: 'Mahsulot maydonlarini to‘g‘ri kiriting.' });
     const changes = {};
     if ('name' in req.body) {
       if (!validName(req.body.name)) return res.status(400).json({ message: 'Mahsulot nomi noto‘g‘ri.' });
@@ -152,6 +185,18 @@ function registerCatalogRoutes(app, { authenticate, productCategories: categorie
     if ('title' in req.body) {
       if (typeof req.body.title !== 'string' || !req.body.title.trim() || req.body.title.length > 200) return res.status(400).json({ message: 'Sarlavha noto‘g‘ri.' });
       changes.title = req.body.title.trim();
+    }
+    if ('originalPrice' in req.body) {
+      if (!Number.isSafeInteger(req.body.originalPrice) || req.body.originalPrice <= 0) {
+        return res.status(400).json({ message: 'Asl narx musbat butun son bo‘lishi kerak.' });
+      }
+      changes.originalPrice = req.body.originalPrice;
+    }
+    if ('minSellingPrice' in req.body) {
+      if (!Number.isSafeInteger(req.body.minSellingPrice) || req.body.minSellingPrice <= 0) {
+        return res.status(400).json({ message: 'Eng past sotilish narxi musbat butun son bo‘lishi kerak.' });
+      }
+      changes.minSellingPrice = req.body.minSellingPrice;
     }
     if ('categoryId' in req.body) {
       if (!ObjectId.isValid(req.body.categoryId)) return res.status(400).json({ message: 'Bo‘lim ID noto‘g‘ri.' });
