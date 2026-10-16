@@ -5,6 +5,7 @@ const { registerUserRoutes } = require('./modules/users/users.api');
 const { registerRegionRoutes } = require('./modules/regions/regions.api');
 const { registerCustomerRoutes } = require('./modules/customers/customers.api');
 const { registerCatalogRoutes } = require('./modules/catalog/catalog.api');
+const { registerPaymentRoutes } = require('./modules/payments/payments.api');
 const openapi = require('./openapi.json');
 
 const docsHtml = `<!doctype html>
@@ -29,8 +30,8 @@ const docsHtml = `<!doctype html>
 </body>
 </html>`;
 
-function createApp({ users, loginRequests, regions, customers, counters, productCategories, products, imageStorage, jwtSecret, corsOrigins = [], logger = console, now = Date.now }) {
-  if (!users || !loginRequests || !regions || !customers || !jwtSecret) throw new Error('users, loginRequests, regions, customers va jwtSecret kerak.');
+function createApp({ users, loginRequests, refreshSessions, regions, customers, payments, paymentApps, mongoClient, counters, productCategories, products, imageStorage, jwtSecret, corsOrigins = [], logger = console, now = Date.now }) {
+  if (!users || !loginRequests || !refreshSessions || !regions || !customers || !payments || !paymentApps || !mongoClient || !jwtSecret) throw new Error('users, loginRequests, refreshSessions, regions, customers, payments, paymentApps, mongoClient va jwtSecret kerak.');
 
   const app = express();
   const allowedOrigins = new Set(corsOrigins);
@@ -42,6 +43,7 @@ function createApp({ users, loginRequests, regions, customers, counters, product
       res.set('Vary', 'Origin');
       res.set('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
       res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      res.set('Access-Control-Allow-Credentials', 'true');
     }
     if (req.method === 'OPTIONS') return res.sendStatus(204);
     next();
@@ -52,11 +54,12 @@ function createApp({ users, loginRequests, regions, customers, counters, product
   app.get('/openapi.json', (_req, res) => res.json(openapi));
   app.get('/docs', (_req, res) => res.type('html').send(docsHtml));
 
-  const { authenticate, requireSuperAdmin } = createAuthMiddleware({ users, jwtSecret, logger });
-  registerAuthRoutes(app, { users, loginRequests, jwtSecret, authenticate, logger, now });
+  const { authenticate, requireSuperAdmin } = createAuthMiddleware({ users, refreshSessions, jwtSecret, logger, now });
+  registerAuthRoutes(app, { users, loginRequests, refreshSessions, jwtSecret, authenticate, corsOrigins, logger, now });
   registerUserRoutes(app, { users, authenticate, requireSuperAdmin, logger, now });
   registerRegionRoutes(app, { regions, customers, authenticate, logger, now });
-  registerCustomerRoutes(app, { authenticate, customers, counters, regions, productCategories, products, logger, now });
+  registerCustomerRoutes(app, { authenticate, customers, payments, paymentApps, mongoClient, counters, regions, productCategories, products, logger, now });
+  registerPaymentRoutes(app, { authenticate, paymentApps, logger });
   if (productCategories && products && imageStorage) {
     registerCatalogRoutes(app, { authenticate, productCategories, products, customers, counters, imageStorage, logger, now });
   }

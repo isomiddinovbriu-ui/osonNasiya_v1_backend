@@ -2,10 +2,10 @@ const jwt = require('jsonwebtoken');
 const { ObjectId } = require('mongodb');
 const { ROLES } = require('../constants/roles');
 
-function createAuthMiddleware({ users, jwtSecret, logger }) {
+function createAuthMiddleware({ users, refreshSessions, jwtSecret, logger, now = Date.now }) {
   async function authenticate(req, res, next) {
     const token = req.get('Authorization')?.match(/^Bearer (.+)$/)?.[1];
-    if (!token) return res.status(401).json({ message: 'Sessiya topilmadi.' });
+    if (!token) return res.status(401).json({ message: 'Token topilmadi.' });
 
     try {
       const payload = jwt.verify(token, jwtSecret, { issuer: 'osonnasiya' });
@@ -15,6 +15,14 @@ function createAuthMiddleware({ users, jwtSecret, logger }) {
       const user = await users.findOne({ _id: new ObjectId(payload.sub) });
       if (!user || !ROLES.has(user.role) || user.role !== payload.role) {
         return res.status(401).json({ message: 'Sessiya tugadi.' });
+      }
+      if (payload.sid !== undefined) {
+        if (!ObjectId.isValid(payload.sid)) return res.status(401).json({ message: 'Sessiya tugadi.' });
+        const session = await refreshSessions.findOne({
+          _id: new ObjectId(payload.sid), userId: user._id, revokedAt: null,
+          expiresAt: { $gt: new Date(now()) },
+        });
+        if (!session) return res.status(401).json({ message: 'Sessiya tugadi.' });
       }
       res.locals.currentUser = user;
       return next();

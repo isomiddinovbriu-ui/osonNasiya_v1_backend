@@ -29,6 +29,7 @@ function publicProduct(item) {
     name: item.name, title: item.title,
     originalPrice: item.originalPrice ?? null,
     minSellingPrice: item.minSellingPrice ?? null,
+    warrantyPeriod: item.warrantyMonths == null ? null : `${Math.floor(item.warrantyMonths / 12)}${item.warrantyMonths % 12 ? `.${item.warrantyMonths % 12}` : ''}`,
     images: (item.images || []).map((image) => ({
       id: image._id.toString(), publicId: image.publicId,
       url: `/api/public/files/${image.publicId}`,
@@ -40,6 +41,16 @@ function publicProduct(item) {
 
 function searchPattern(value) {
   return new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+}
+
+function parseWarrantyMonths(value) {
+  if (typeof value !== 'string' && (typeof value !== 'number' || !Number.isFinite(value))) return null;
+  const match = /^(0|[1-9]\d*)(?:\.(\d{1,2}))?$/.exec(String(value));
+  if (!match) return null;
+  const years = Number(match[1]);
+  const months = match[2] === undefined ? 0 : Number(match[2]);
+  const total = years * 12 + months;
+  return months < 12 && Number.isSafeInteger(total) && total > 0 ? total : null;
 }
 
 function registerCatalogRoutes(app, { authenticate, productCategories: categories, products, customers, counters, imageStorage, logger, now }) {
@@ -121,17 +132,18 @@ function registerCatalogRoutes(app, { authenticate, productCategories: categorie
   }
 
   app.post('/products', authenticate, editor, async (req, res) => {
-    const { name, title, categoryId, originalPrice, minSellingPrice } = req.body || {};
+    const { name, title, categoryId, originalPrice, minSellingPrice, warrantyPeriod } = req.body || {};
+    const warrantyMonths = parseWarrantyMonths(warrantyPeriod);
     if (!validName(name) || typeof title !== 'string' || !title.trim() || title.length > 200 ||
         !ObjectId.isValid(categoryId) || !Number.isSafeInteger(originalPrice) || originalPrice <= 0 ||
-        !Number.isSafeInteger(minSellingPrice) || minSellingPrice <= 0) {
-      return res.status(400).json({ message: 'Mahsulot nomi, sarlavhasi, bo‘limi va narxlarini to‘g‘ri kiriting.' });
+        !Number.isSafeInteger(minSellingPrice) || minSellingPrice <= 0 || warrantyMonths === null) {
+      return res.status(400).json({ message: 'Mahsulot nomi, sarlavhasi, bo‘limi, narxlari va kafolat muddatini to‘g‘ri kiriting.' });
     }
     try {
       const category = await validLeaf(categoryId);
       if (!category) return res.status(404).json({ message: 'Mahsulot bo‘limi topilmadi.' });
       const document = { name: name.trim(), title: title.trim(), categoryId: category._id,
-        originalPrice, minSellingPrice, images: [],
+        originalPrice, minSellingPrice, warrantyMonths, images: [],
         createdBy: res.locals.currentUser._id, createdAt: new Date(now()) };
       document.universalId = await nextProductUniversalId(counters, document.createdAt);
       const result = await products.insertOne(document);
@@ -176,7 +188,7 @@ function registerCatalogRoutes(app, { authenticate, productCategories: categorie
 
   app.patch('/products/:id', authenticate, editor, async (req, res) => {
     if (!ObjectId.isValid(req.params.id) || !req.body || typeof req.body !== 'object' || Array.isArray(req.body) ||
-        !Object.keys(req.body).length || Object.keys(req.body).some((field) => !['name', 'title', 'categoryId', 'originalPrice', 'minSellingPrice'].includes(field))) return res.status(400).json({ message: 'Mahsulot maydonlarini to‘g‘ri kiriting.' });
+        !Object.keys(req.body).length || Object.keys(req.body).some((field) => !['name', 'title', 'categoryId', 'originalPrice', 'minSellingPrice', 'warrantyPeriod'].includes(field))) return res.status(400).json({ message: 'Mahsulot maydonlarini to‘g‘ri kiriting.' });
     const changes = {};
     if ('name' in req.body) {
       if (!validName(req.body.name)) return res.status(400).json({ message: 'Mahsulot nomi noto‘g‘ri.' });
@@ -197,6 +209,11 @@ function registerCatalogRoutes(app, { authenticate, productCategories: categorie
         return res.status(400).json({ message: 'Eng past sotilish narxi musbat butun son bo‘lishi kerak.' });
       }
       changes.minSellingPrice = req.body.minSellingPrice;
+    }
+    if ('warrantyPeriod' in req.body) {
+      const warrantyMonths = parseWarrantyMonths(req.body.warrantyPeriod);
+      if (warrantyMonths === null) return res.status(400).json({ message: 'Kafolat muddati noto‘g‘ri.' });
+      changes.warrantyMonths = warrantyMonths;
     }
     if ('categoryId' in req.body) {
       if (!ObjectId.isValid(req.body.categoryId)) return res.status(400).json({ message: 'Bo‘lim ID noto‘g‘ri.' });

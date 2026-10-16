@@ -115,7 +115,7 @@
       "post": {
         "tags": ["Auth"],
         "summary": "Foydalanuvchi login",
-        "description": "Login kichik harfga o'tkaziladi. JWT 12 soat amal qiladi.",
+        "description": "Login kichik harfga o'tkaziladi. Access token 15 daqiqa amal qiladi. Refresh sessiyasi oxirgi yangilanishdan keyin 30 kun amal qiladi. Mobil ilova refreshToken ni javobdan oladi; web clientType bilan kirganda u HttpOnly cookie orqali beriladi.",
         "requestBody": {
           "required": true,
           "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LoginRequest" } } }
@@ -131,6 +131,31 @@
             "description": "Urinishlar soni oshdi; 15 daqiqadan keyin qayta urinib ko'ring",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
           }
+        }
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Sessiyani davom ettirish",
+        "description": "Mobil ilova bir martalik refreshToken ni JSON bodyda yuboradi. Web ilova refresh cookieni yuboradi (credentials: include va ruxsat etilgan Origin). Har muvaffaqiyatli so'rovda refresh token almashtiriladi va 30 kunlik muddat yangilanadi. Oldingi token qayta ishlamaydi.",
+        "requestBody": { "required": false, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RefreshRequest" } } } },
+        "responses": {
+          "200": { "description": "Yangi access token va refresh token yoki cookie", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LoginResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Sessiyadan chiqish",
+        "description": "Mobil ilova refreshToken ni JSON bodyda, web ilova cookieda yuboradi. Sessiya bekor qilinadi; unga bog'langan access token ham ishlamaydi.",
+        "requestBody": { "required": false, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RefreshRequest" } } } },
+        "responses": {
+          "204": { "description": "Sessiya yopildi" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
         }
       }
     },
@@ -269,7 +294,9 @@
           { "name": "createdByRole", "in": "query", "schema": { "type": "string", "enum": ["super_admin", "sotuvchi", "yiguvchi"] } },
           { "name": "hasDebt", "in": "query", "schema": { "type": "boolean" } },
           { "name": "paymentMethod", "in": "query", "schema": { "$ref": "#/components/schemas/PaymentMethod" } },
+          { "name": "paymentProvider", "in": "query", "description": "payment_app ilovasi kodi", "schema": { "$ref": "#/components/schemas/PaymentProvider" } },
           { "name": "paymentType", "in": "query", "schema": { "type": "string", "enum": ["initial", "installment"] } },
+          { "name": "paymentMonth", "in": "query", "description": "Qaysi oy uchun yozilgan to'lov; YYYY-MM", "schema": { "type": "string", "pattern": "^(?!0000)[0-9]{4}-(0[1-9]|1[0-2])$", "example": "2026-06" } },
           { "name": "createdFrom", "in": "query", "schema": { "type": "string", "example": "2026-01-01" } },
           { "name": "createdTo", "in": "query", "schema": { "type": "string", "example": "2026-12-31" } },
           { "name": "paidFrom", "in": "query", "schema": { "type": "string", "example": "2026-01-01" } },
@@ -329,6 +356,25 @@
         }
       }
     },
+    "/customers/nearby": {
+      "get": {
+        "tags": ["Customers"],
+        "summary": "Berilgan nuqta atrofidagi mijozlar",
+        "description": "lat va long markaziy nuqta; radiusMeters metrda (masalan, 1000 yoki 12345). Masofa Yer yuzasi bo'ylab to'g'ri chiziq masofasi (haversine) sifatida hisoblanadi, yo'l masofasi emas. Natija eng yaqindan boshlab tartiblanadi; har bir mijozda distanceKm kilometrda qaytadi.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "lat", "in": "query", "required": true, "schema": { "type": "number", "minimum": -90, "maximum": 90 }, "example": 41.2995 },
+          { "name": "long", "in": "query", "required": true, "schema": { "type": "number", "minimum": -180, "maximum": 180 }, "example": 69.2401 },
+          { "name": "radiusMeters", "in": "query", "required": true, "schema": { "type": "integer", "minimum": 1, "maximum": 20038000 }, "example": 1000 }
+        ],
+        "responses": {
+          "200": { "description": "Radius ichidagi mijozlar", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NearbyCustomerResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
     "/customers/{mijoz_id}": {
       "get": {
         "tags": ["Customers"],
@@ -346,11 +392,23 @@
         }
       }
     },
+    "/payments/options": {
+      "get": {
+        "tags": ["Payments"],
+        "summary": "To'lov turlari va ilovalar ro'yxati",
+        "description": "Usullar va payment_apps collectiondagi 48 ta ilova 5 kategoriyada qaytadi; other qo'shimcha tanlov. Bu ro'yxat qo'lda qayd etish uchun. Provayder orqali real pul yechish integratsiyasi emas.",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": { "description": "To'lov variantlari", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PaymentOptionsResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
     "/customers/{mijoz_id}/payments": {
       "post": {
         "tags": ["Payments"],
         "summary": "Mijozning keyingi to'lovini yozish",
-        "description": "To'lov va qoldiq bitta MongoDB hujjatida atomik yangilanadi. Summa qolgan qarzdan oshmasligi kerak.",
+        "description": "Har bir to'lov ixtiyoriy musbat butun so'm summasida yoziladi: oyma-oy belgilangan summa, ketma-ket oylar yoki termMonths muddati bilan cheklanmaydi. forMonth qaysi oy uchun berilganini bildiradi (masalan, oktabrda yozilgan to'lov 2026-06 uchun bo'lishi mumkin); paidAt esa haqiqiy to'lov sanasi. Bir nechta eski oy uchun alohida to'lovlar yozing. forMonth berilmagan eski mijoz ilovalari ishlashda davom etadi, bunday yozuvlarda forMonth null bo'ladi. Summa qolgan qarzdan oshmasligi kerak. To'lov va mijoz balansi MongoDB tranzaksiyasida birga saqlanadi.",
         "security": [{ "bearerAuth": [] }],
         "parameters": [{ "name": "mijoz_id", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } }],
         "requestBody": {
@@ -420,10 +478,11 @@
       "CreateCategoryRequest": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string", "maxLength": 100, "example": "Texnika" }, "parentId": { "type": "string", "nullable": true, "description": "Texnika IDsi berilsa Telefon kabi bo'lim yaratiladi" } } },
       "Category": { "type": "object", "required": ["id", "name", "parentId", "createdBy", "createdAt"], "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "parentId": { "type": "string", "nullable": true }, "createdBy": { "type": "string" }, "createdAt": { "type": "string", "format": "date-time" }, "updatedAt": { "type": "string", "format": "date-time", "nullable": true } } },
       "CategoryResponse": { "type": "object", "properties": { "category": { "$ref": "#/components/schemas/Category" } } },
-      "CreateProductRequest": { "type": "object", "required": ["name", "title", "categoryId", "originalPrice", "minSellingPrice"], "properties": { "name": { "type": "string", "maxLength": 100, "example": "Samsung A55" }, "title": { "type": "string", "maxLength": 200, "example": "Samsung Galaxy A55 256GB" }, "categoryId": { "type": "string", "description": "Bo'lim IDsi" }, "originalPrice": { "type": "integer", "minimum": 1, "description": "Asl narx, so'mda", "example": 3000000 }, "minSellingPrice": { "type": "integer", "minimum": 1, "description": "Eng past sotilish narxi, so'mda", "example": 2800000 } } },
-      "UpdateProductRequest": { "type": "object", "minProperties": 1, "additionalProperties": false, "properties": { "name": { "type": "string", "maxLength": 100 }, "title": { "type": "string", "maxLength": 200 }, "categoryId": { "type": "string" }, "originalPrice": { "type": "integer", "minimum": 1 }, "minSellingPrice": { "type": "integer", "minimum": 1 } } },
+      "CreateProductRequest": { "type": "object", "required": ["name", "title", "categoryId", "originalPrice", "minSellingPrice", "warrantyPeriod"], "properties": { "name": { "type": "string", "maxLength": 100, "example": "Samsung A55" }, "title": { "type": "string", "maxLength": 200, "example": "Samsung Galaxy A55 256GB" }, "categoryId": { "type": "string", "description": "Bo'lim IDsi" }, "originalPrice": { "type": "integer", "minimum": 1, "description": "Asl narx, so'mda", "example": 3000000 }, "minSellingPrice": { "type": "integer", "minimum": 1, "description": "Eng past sotilish narxi, so'mda", "example": 2800000 }, "warrantyPeriod": { "$ref": "#/components/schemas/WarrantyPeriodInput" } } },
+      "UpdateProductRequest": { "type": "object", "minProperties": 1, "additionalProperties": false, "properties": { "name": { "type": "string", "maxLength": 100 }, "title": { "type": "string", "maxLength": 200 }, "categoryId": { "type": "string" }, "originalPrice": { "type": "integer", "minimum": 1 }, "minSellingPrice": { "type": "integer", "minimum": 1 }, "warrantyPeriod": { "$ref": "#/components/schemas/WarrantyPeriodInput" } } },
+      "WarrantyPeriodInput": { "description": "Yil.oy formati: 1.6 = 1 yil 6 oy, 1.10 = 1 yil 10 oy. 10 yoki 11 oy uchun matn yuboring, chunki JSON soni oxirgi nolni saqlamaydi. Oy qismi 0 dan 11 gacha, jami muddat musbat bo'lishi kerak.", "oneOf": [{ "type": "string", "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,2})?$", "example": "1.10" }, { "type": "number", "example": 1.6 }] },
       "ProductImage": { "type": "object", "properties": { "id": { "type": "string" }, "publicId": { "type": "string", "format": "uuid" }, "url": { "type": "string", "description": "Public fayl URLi; MinIO obyekt nomidan mustaqil" } } },
-      "Product": { "type": "object", "required": ["id", "universalId", "name", "title", "categoryId", "originalPrice", "minSellingPrice", "images", "createdBy", "createdAt"], "properties": { "id": { "type": "string" }, "universalId": { "type": "string", "pattern": "^UD-[0-9]{9,}$", "example": "UD-261015001", "description": "UD + Toshkent sanasi YYMMDD + kunlik tartib raqami (kamida 3 xonali)" }, "name": { "type": "string" }, "title": { "type": "string" }, "categoryId": { "type": "string" }, "originalPrice": { "type": "integer", "nullable": true, "description": "Eski mahsulotlarda null bo'lishi mumkin" }, "minSellingPrice": { "type": "integer", "nullable": true, "description": "Eski mahsulotlarda null bo'lishi mumkin" }, "images": { "type": "array", "maxItems": 10, "items": { "$ref": "#/components/schemas/ProductImage" } }, "createdBy": { "type": "string" }, "createdAt": { "type": "string", "format": "date-time" }, "updatedAt": { "type": "string", "format": "date-time", "nullable": true } } },
+      "Product": { "type": "object", "required": ["id", "universalId", "name", "title", "categoryId", "originalPrice", "minSellingPrice", "warrantyPeriod", "images", "createdBy", "createdAt"], "properties": { "id": { "type": "string" }, "universalId": { "type": "string", "pattern": "^UD-[0-9]{9,}$", "example": "UD-261015001", "description": "UD + Toshkent sanasi YYMMDD + kunlik tartib raqami (kamida 3 xonali)" }, "name": { "type": "string" }, "title": { "type": "string" }, "categoryId": { "type": "string" }, "originalPrice": { "type": "integer", "nullable": true, "description": "Eski mahsulotlarda null bo'lishi mumkin" }, "minSellingPrice": { "type": "integer", "nullable": true, "description": "Eski mahsulotlarda null bo'lishi mumkin" }, "warrantyPeriod": { "type": "string", "nullable": true, "description": "Yil.oy ko'rinishida; 1.6 = 1 yil 6 oy. Eski mahsulotlarda null.", "example": "1.6" }, "images": { "type": "array", "maxItems": 10, "items": { "$ref": "#/components/schemas/ProductImage" } }, "createdBy": { "type": "string" }, "createdAt": { "type": "string", "format": "date-time" }, "updatedAt": { "type": "string", "format": "date-time", "nullable": true } } },
       "ProductResponse": { "type": "object", "properties": { "product": { "$ref": "#/components/schemas/Product" } } },
       "Health": {
         "type": "object",
@@ -446,16 +505,26 @@
         "required": ["login", "password"],
         "properties": {
           "login": { "type": "string", "maxLength": 100, "example": "admin" },
-          "password": { "type": "string", "format": "password", "example": "your-password" }
+          "password": { "type": "string", "format": "password", "example": "your-password" },
+          "clientType": { "type": "string", "enum": ["mobile", "web"], "default": "mobile" }
         }
       },
       "LoginResponse": {
         "type": "object",
-        "required": ["token", "user"],
+        "required": ["token", "accessToken", "expiresIn", "refreshExpiresAt", "user"],
         "properties": {
-          "token": { "type": "string", "description": "12 soatlik JWT" },
+          "token": { "type": "string", "description": "Moslik uchun accessToken bilan bir xil 15 daqiqalik JWT" },
+          "accessToken": { "type": "string", "description": "15 daqiqalik JWT; Authorization: Bearer orqali yuboriladi" },
+          "expiresIn": { "type": "integer", "example": 900, "description": "Access token muddati soniyada" },
+          "refreshExpiresAt": { "type": "string", "format": "date-time", "description": "Oxirgi refresh yoki logindan 30 kun keyingi vaqt" },
+          "refreshToken": { "type": "string", "description": "Faqat mobile clientType uchun; webda HttpOnly Secure cookie ishlatiladi" },
           "user": { "$ref": "#/components/schemas/User" }
         }
+      },
+      "RefreshRequest": {
+        "type": "object",
+        "required": ["refreshToken"],
+        "properties": { "refreshToken": { "type": "string", "description": "Mobil klientning oxirgi refresh tokeni" } }
       },
       "MeResponse": {
         "type": "object",
@@ -528,7 +597,9 @@
         "required": ["regions"],
         "properties": { "regions": { "type": "array", "items": { "$ref": "#/components/schemas/Region" } } }
       },
-      "PaymentMethod": { "type": "string", "enum": ["cash", "transfer"], "description": "cash — naqd, transfer — o‘tkazma" },
+      "PaymentMethod": { "type": "string", "enum": ["cash", "transfer", "card", "payment_app"], "description": "cash — naqd, transfer — eski o'tkazma turi, card — karta, payment_app — to'lov ilovasi" },
+      "PaymentProvider": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$", "description": "GET /payments/options dan olingan ilova kodi yoki other" },
+      "PaymentOptionsResponse": { "type": "object", "required": ["methods", "providers", "categories"], "properties": { "methods": { "type": "array", "items": { "type": "object", "required": ["id", "label"], "properties": { "id": { "$ref": "#/components/schemas/PaymentMethod" }, "label": { "type": "string" } } } }, "providers": { "type": "array", "items": { "type": "object", "required": ["id", "label", "category"], "properties": { "id": { "$ref": "#/components/schemas/PaymentProvider" }, "label": { "type": "string" }, "category": { "type": "string", "nullable": true } } } }, "categories": { "type": "array", "items": { "type": "object", "required": ["category", "apps"], "properties": { "category": { "type": "string" }, "apps": { "type": "array", "items": { "type": "object", "required": ["id", "label"], "properties": { "id": { "$ref": "#/components/schemas/PaymentProvider" }, "label": { "type": "string" } } } } } } } } },
       "CreateCustomerRequest": {
         "type": "object",
         "required": ["name", "phoneNumber", "groupId", "sectionId", "productId", "regionId", "lat", "long", "totalPrice", "downPayment", "termMonths"],
@@ -545,20 +616,28 @@
           "totalPrice": { "type": "integer", "minimum": 1, "description": "Jami narx, so'mda", "example": 3000000 },
           "downPayment": { "type": "integer", "minimum": 0, "description": "Boshlang'ich to'lov, so'mda", "example": 500000 },
           "paymentMethod": { "$ref": "#/components/schemas/PaymentMethod", "description": "downPayment > 0 bo'lsa majburiy" },
+          "cardNumber": { "type": "string", "description": "paymentMethod=card yoki payment_app bo'lsa majburiy; 13–19 raqam. To'liq raqam saqlanmaydi, faqat oxirgi 4 raqam qoladi." },
+          "provider": { "$ref": "#/components/schemas/PaymentProvider", "description": "paymentMethod=payment_app bo'lsa majburiy" },
+          "providerName": { "type": "string", "maxLength": 80, "description": "provider=other bo'lsa majburiy" },
           "termMonths": { "type": "integer", "minimum": 1, "maximum": 120, "example": 12 },
           "description": { "type": "string", "maxLength": 1000 }
         }
       },
       "Payment": {
         "type": "object",
-        "required": ["id", "type", "amount", "method", "receivedBy", "paidAt"],
+        "required": ["id", "paymentId", "type", "amount", "method", "receivedBy", "paidAt", "forMonth", "cardLast4", "provider", "providerName"],
         "properties": {
           "id": { "type": "string" },
+          "paymentId": { "type": "string", "description": "To'lovning server yaratgan IDsi; id bilan bir xil" },
           "type": { "type": "string", "enum": ["initial", "installment"] },
           "amount": { "type": "integer", "description": "So'mda" },
           "method": { "$ref": "#/components/schemas/PaymentMethod" },
           "receivedBy": { "type": "string", "description": "To'lovni yozgan xodim IDsi" },
-          "paidAt": { "type": "string", "format": "date-time" }
+          "paidAt": { "type": "string", "format": "date-time", "description": "To'lov qabul qilingan haqiqiy sana" },
+          "forMonth": { "type": "string", "nullable": true, "pattern": "^(?!0000)[0-9]{4}-(0[1-9]|1[0-2])$", "description": "Qaysi oy uchun to'landi; boshlang'ich va eski oy ko'rsatilmagan to'lovlarda null", "example": "2026-06" },
+          "cardLast4": { "type": "string", "nullable": true, "pattern": "^[0-9]{4}$", "description": "card yoki payment_app uchun karta raqamining faqat oxirgi 4 raqami; eski yozuvlarda null" },
+          "provider": { "$ref": "#/components/schemas/PaymentProvider", "nullable": true },
+          "providerName": { "type": "string", "nullable": true, "description": "provider=other uchun ilova nomi" }
         }
       },
       "Customer": {
@@ -603,18 +682,31 @@
           "limit": { "type": "integer" }
         }
       },
+      "NearbyCustomerResponse": {
+        "type": "object",
+        "required": ["customers", "total"],
+        "properties": {
+          "customers": { "type": "array", "items": { "allOf": [{ "$ref": "#/components/schemas/Customer" }, { "type": "object", "required": ["distanceKm"], "properties": { "distanceKm": { "type": "number", "description": "Markaziy nuqtadan masofa, kilometrda, 3 xonagacha yaxlitlangan" } } }] } },
+          "total": { "type": "integer" }
+        }
+      },
       "AddPaymentRequest": {
         "type": "object",
         "required": ["amount", "method"],
         "properties": {
           "amount": { "type": "integer", "minimum": 1, "description": "So'mda" },
-          "method": { "$ref": "#/components/schemas/PaymentMethod" }
+          "method": { "$ref": "#/components/schemas/PaymentMethod" },
+          "forMonth": { "type": "string", "pattern": "^(?!0000)[0-9]{4}-(0[1-9]|1[0-2])$", "description": "To'lov qaysi oy uchun; yangi ilovalar yuborishi tavsiya etiladi", "example": "2026-06" },
+          "cardNumber": { "type": "string", "description": "method=card yoki payment_app bo'lsa majburiy; saqlanmaydi, faqat oxirgi 4 raqam qoladi" },
+          "provider": { "$ref": "#/components/schemas/PaymentProvider", "description": "method=payment_app bo'lsa majburiy" },
+          "providerName": { "type": "string", "maxLength": 80, "description": "provider=other bo'lsa majburiy" }
         }
       },
       "AddPaymentResponse": {
         "type": "object",
-        "required": ["payment", "customer"],
+        "required": ["paymentId", "payment", "customer"],
         "properties": {
+          "paymentId": { "type": "string", "description": "Yangi to'lov IDsi" },
           "payment": { "$ref": "#/components/schemas/Payment" },
           "customer": { "$ref": "#/components/schemas/Customer" }
         }

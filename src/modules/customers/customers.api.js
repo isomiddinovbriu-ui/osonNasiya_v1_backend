@@ -1,7 +1,7 @@
 const { ObjectId } = require('mongodb');
 const { nextCustomerId } = require('./customer-id.service');
+const { methodIds, validProviderCode, paymentDetails } = require('../payments/payment-options');
 
-const PAYMENT_METHODS = new Set(['cash', 'transfer']);
 const CREATOR_ROLES = new Set(['super_admin', 'sotuvchi', 'yiguvchi']);
 const ID_FILTERS = ['regionId', 'groupId', 'sectionId', 'productId', 'createdBy', 'paymentId', 'receivedBy'];
 const TEXT_FILTERS = ['name', 'productName', 'description'];
@@ -16,12 +16,16 @@ const NUMBER_FILTERS = {
 const DATE_FILTERS = ['createdFrom', 'createdTo', 'paidFrom', 'paidTo'];
 const LIST_FILTERS = new Set([
   ...ID_FILTERS, ...TEXT_FILTERS, ...DATE_FILTERS, 'phoneNumber', 'search', 'createdByRole',
-  'paymentMethod', 'paymentType', 'hasDebt', 'page', 'limit',
+  'paymentMethod', 'paymentType', 'paymentMonth', 'paymentProvider', 'hasDebt', 'page', 'limit',
   ...Object.keys(NUMBER_FILTERS).flatMap((field) => [field, `${field}Min`, `${field}Max`]),
 ]);
 
 function escapedPattern(value) {
   return new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+}
+
+function validPaymentMonth(value) {
+  return typeof value === 'string' && /^(?!0000)\d{4}-(?:0[1-9]|1[0-2])$/.test(value);
 }
 
 function buildCustomerListQuery(query) {
@@ -119,12 +123,20 @@ function buildCustomerListQuery(query) {
     };
   }
   if (query.paymentMethod !== undefined) {
-    if (!PAYMENT_METHODS.has(query.paymentMethod)) throw new Error('paymentMethod noto‘g‘ri.');
+    if (!methodIds.has(query.paymentMethod)) throw new Error('paymentMethod noto‘g‘ri.');
     (filter.payments ??= { $elemMatch: {} }).$elemMatch.method = query.paymentMethod;
+  }
+  if (query.paymentProvider !== undefined) {
+    if (!validProviderCode(query.paymentProvider)) throw new Error('paymentProvider noto‘g‘ri.');
+    (filter.payments ??= { $elemMatch: {} }).$elemMatch.provider = query.paymentProvider;
   }
   if (query.paymentType !== undefined) {
     if (!['initial', 'installment'].includes(query.paymentType)) throw new Error('paymentType noto‘g‘ri.');
     (filter.payments ??= { $elemMatch: {} }).$elemMatch.type = query.paymentType;
+  }
+  if (query.paymentMonth !== undefined) {
+    if (!validPaymentMonth(query.paymentMonth)) throw new Error('paymentMonth YYYY-MM formatida bo‘lishi kerak.');
+    (filter.payments ??= { $elemMatch: {} }).$elemMatch.forMonth = query.paymentMonth;
   }
   if (query.receivedBy !== undefined) {
     (filter.payments ??= { $elemMatch: {} }).$elemMatch.receivedBy = new ObjectId(query.receivedBy);
@@ -139,11 +151,16 @@ function buildCustomerListQuery(query) {
 function publicPayment(payment) {
   return {
     id: payment._id.toString(),
+    paymentId: payment._id.toString(),
     type: payment.type,
     amount: payment.amount,
     method: payment.method,
     receivedBy: payment.receivedBy.toString(),
     paidAt: payment.paidAt,
+    forMonth: payment.forMonth ?? null,
+    cardLast4: payment.cardLast4 ?? null,
+    provider: payment.provider ?? null,
+    providerName: payment.providerName ?? null,
   };
 }
 
@@ -166,7 +183,7 @@ function publicCustomer(customer) {
     totalPaid: customer.totalPaid,
     remainingBalance: customer.remainingBalance,
     description: customer.description,
-    payments: customer.payments.map(publicPayment),
+    payments: (customer.payments || []).map(publicPayment),
     createdBy: customer.createdBy.toString(),
     createdByRole: customer.createdByRole,
     createdAt: customer.createdAt,
@@ -183,7 +200,42 @@ function validCustomerNumber(value) {
   return /^[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value));
 }
 
-function registerCustomerRoutes(app, { authenticate, customers, counters, regions, productCategories, products, logger, now }) {
+function distanceKm(lat1, long1, lat2, long2) {
+  const radians = Math.PI / 180;
+  const latDelta = (lat2 - lat1) * radians;
+  const longDelta = (long2 - long1) * radians;
+  const haversine = Math.sin(latDelta / 2) ** 2 +
+    Math.cos(lat1 * radians) * Math.cos(lat2 * radians) * Math.sin(longDelta / 2) ** 2;
+  return 6371.0088 * 2 * Math.asin(Math.sqrt(Math.min(1, haversine)));
+}
+
+function nearbyQuery(query) {
+  if (Object.keys(query).some((field) => !['lat', 'long', 'radiusMeters'].includes(field))) return null;
+  const coordinates = ['lat', 'long'].map((field) => query[field]);
+  if (coordinates.some((value) => typeof value !== 'string' || !/^-?\d+(?:\.\d+)?$/.test(value)) ||
+      typeof query.radiusMeters !== 'string' || !/^[1-9]\d*$/.test(query.radiusMeters)) return null;
+  const [lat, long] = coordinates.map(Number);
+  const radiusMeters = Number(query.radiusMeters);
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90 ||
+      !Number.isFinite(long) || long < -180 || long > 180 ||
+      !Number.isSafeInteger(radiusMeters) || radiusMeters > 20038000) return null;
+  return { lat, long, radiusMeters };
+}
+
+function registerCustomerRoutes(app, { authenticate, customers, payments, paymentApps, mongoClient, counters, regions, productCategories, products, logger, now }) {
+  async function withPayments(items) {
+    if (!items.length) return items;
+    const rows = await payments.find({ customerId: { $in: items.map((item) => item._id) } })
+      .sort({ paidAt: 1, _id: 1 }).toArray();
+    const byCustomer = new Map();
+    for (const row of rows) {
+      const key = row.customerId.toString();
+      if (!byCustomer.has(key)) byCustomer.set(key, []);
+      byCustomer.get(key).push(row);
+    }
+    return items.map((item) => ({ ...item, payments: byCustomer.get(item._id.toString()) || [] }));
+  }
+
   app.get('/customers', authenticate, async (req, res) => {
     if (!CREATOR_ROLES.has(res.locals.currentUser.role)) return res.status(403).json({ message: 'Bu amal uchun ruxsat yo‘q.' });
     let parsed;
@@ -191,13 +243,43 @@ function registerCustomerRoutes(app, { authenticate, customers, counters, region
     catch (error) { return res.status(400).json({ message: error.message }); }
     try {
       const { filter, page, limit } = parsed;
+      if (filter.payments) {
+        const matching = await payments.distinct('customerId', filter.payments.$elemMatch);
+        filter._id = { $in: matching };
+        delete filter.payments;
+      }
       const [total, items] = await Promise.all([
         customers.countDocuments(filter),
         customers.find(filter).sort({ createdAt: -1, _id: -1 }).skip((page - 1) * limit).limit(limit).toArray(),
       ]);
-      return res.json({ customers: items.map(publicCustomer), total, page, limit });
+      return res.json({ customers: (await withPayments(items)).map(publicCustomer), total, page, limit });
     } catch (error) {
       logger.error('Mijozlar ro‘yxatini olishda xatolik:', error);
+      return res.status(500).json({ message: 'Serverda xatolik yuz berdi.' });
+    }
+  });
+
+  app.get('/customers/nearby', authenticate, async (req, res) => {
+    if (!CREATOR_ROLES.has(res.locals.currentUser.role)) return res.status(403).json({ message: 'Bu amal uchun ruxsat yo‘q.' });
+    const location = nearbyQuery(req.query);
+    if (!location) return res.status(400).json({ message: 'lat, long va radiusMeters ni to‘g‘ri kiriting.' });
+    try {
+      const { lat, long, radiusMeters } = location;
+      const radiusKm = radiusMeters / 1000;
+      const latitudeRange = radiusMeters / 110000;
+      const candidates = await customers.find({ lat: {
+        $gte: Math.max(-90, lat - latitudeRange),
+        $lte: Math.min(90, lat + latitudeRange),
+      } }).toArray();
+      const nearby = candidates
+        .filter((customer) => typeof customer.long === 'number' && customer.long >= -180 && customer.long <= 180)
+        .map((customer) => ({ customer, distance: distanceKm(lat, long, customer.lat, customer.long) }))
+        .filter(({ distance }) => distance <= radiusKm)
+        .sort((a, b) => a.distance - b.distance || a.customer.mijoz_id - b.customer.mijoz_id);
+      const hydrated = await withPayments(nearby.map(({ customer }) => customer));
+      return res.json({ customers: hydrated.map((customer, index) => ({ ...publicCustomer(customer), distanceKm: Number(nearby[index].distance.toFixed(3)) })), total: nearby.length });
+    } catch (error) {
+      logger.error('Yaqin mijozlarni olishda xatolik:', error);
       return res.status(500).json({ message: 'Serverda xatolik yuz berdi.' });
     }
   });
@@ -211,7 +293,8 @@ function registerCustomerRoutes(app, { authenticate, customers, counters, region
     const phoneNumber = typeof req.body?.phoneNumber === 'string' ? req.body.phoneNumber.trim() : '';
     const addPhoneNumber = req.body?.addPhoneNumber;
     const description = req.body?.description === undefined ? '' : req.body.description;
-    const { groupId, sectionId, productId, regionId, lat, long, totalPrice, downPayment, termMonths, paymentMethod } = req.body || {};
+    const { groupId, sectionId, productId, regionId, lat, long, totalPrice, downPayment, termMonths, paymentMethod,
+      cardNumber, provider, providerName } = req.body || {};
     if (!name || name.length > 100 || !validPhone(phoneNumber) ||
         (addPhoneNumber !== undefined && addPhoneNumber !== null &&
           (typeof addPhoneNumber !== 'string' || (addPhoneNumber.trim() !== '' && !validPhone(addPhoneNumber.trim())))) ||
@@ -221,10 +304,15 @@ function registerCustomerRoutes(app, { authenticate, customers, counters, region
         typeof long !== 'number' || !Number.isFinite(long) || long < -180 || long > 180 ||
         !Number.isSafeInteger(downPayment) || downPayment < 0 || downPayment > totalPrice ||
         !Number.isInteger(termMonths) || termMonths < 1 || termMonths > 120 ||
-        (downPayment > 0 && !PAYMENT_METHODS.has(paymentMethod)) ||
-        (downPayment === 0 && paymentMethod !== undefined && paymentMethod !== null) ||
+        (downPayment === 0 && (paymentMethod != null || cardNumber !== undefined || provider !== undefined || providerName !== undefined)) ||
         typeof description !== 'string' || description.length > 1000) {
       return res.status(400).json({ message: 'Mijoz, telefon raqamlari, guruh, bo‘lim, mahsulot, hudud, lat, long, narx, muddat va boshlang‘ich to‘lov ma’lumotlarini to‘g‘ri kiriting.' });
+    }
+
+    let initialDetails = null;
+    if (downPayment > 0) {
+      try { initialDetails = await paymentDetails({ method: paymentMethod, cardNumber, provider, providerName }, paymentApps); }
+      catch (error) { return res.status(400).json({ message: error.message }); }
     }
 
     try {
@@ -255,6 +343,7 @@ function registerCustomerRoutes(app, { authenticate, customers, counters, region
         method: paymentMethod,
         receivedBy: actor._id,
         paidAt: createdAt,
+        ...initialDetails,
       } : null;
       const document = {
         name,
@@ -273,14 +362,20 @@ function registerCustomerRoutes(app, { authenticate, customers, counters, region
         totalPaid: downPayment,
         remainingBalance: totalPrice - downPayment,
         description: description.trim(),
-        payments: initialPayment ? [initialPayment] : [],
         createdBy: actor._id,
         createdByRole: actor.role,
         createdAt,
       };
       document.mijoz_id = await nextCustomerId(counters);
-      const result = await customers.insertOne(document);
-      return res.status(201).json({ customer: publicCustomer({ ...document, _id: result.insertedId }) });
+      const session = mongoClient.startSession();
+      let result;
+      try {
+        await session.withTransaction(async () => {
+          result = await customers.insertOne(document, { session });
+          if (initialPayment) await payments.insertOne({ ...initialPayment, customerId: result.insertedId, mijoz_id: document.mijoz_id }, { session });
+        });
+      } finally { await session.endSession(); }
+      return res.status(201).json({ customer: publicCustomer({ ...document, _id: result.insertedId, payments: initialPayment ? [initialPayment] : [] }) });
     } catch (error) {
       logger.error('Mijoz yaratishda xatolik:', error);
       return res.status(500).json({ message: 'Serverda xatolik yuz berdi.' });
@@ -293,7 +388,7 @@ function registerCustomerRoutes(app, { authenticate, customers, counters, region
     try {
       const customer = await customers.findOne({ mijoz_id: Number(req.params.mijoz_id) });
       if (!customer) return res.status(404).json({ message: 'Mijoz topilmadi.' });
-      return res.json({ customer: publicCustomer(customer) });
+      return res.json({ customer: publicCustomer((await withPayments([customer]))[0]) });
     } catch (error) {
       logger.error('Mijozni olishda xatolik:', error);
       return res.status(500).json({ message: 'Serverda xatolik yuz berdi.' });
@@ -303,10 +398,14 @@ function registerCustomerRoutes(app, { authenticate, customers, counters, region
   app.post('/customers/:mijoz_id/payments', authenticate, async (req, res) => {
     if (!CREATOR_ROLES.has(res.locals.currentUser.role)) return res.status(403).json({ message: 'Bu amal uchun ruxsat yo‘q.' });
     if (!validCustomerNumber(req.params.mijoz_id)) return res.status(400).json({ message: 'mijoz_id noto‘g‘ri.' });
-    const { amount, method } = req.body || {};
-    if (!Number.isSafeInteger(amount) || amount <= 0 || !PAYMENT_METHODS.has(method)) {
-      return res.status(400).json({ message: 'To‘lov summasi va usulini to‘g‘ri kiriting.' });
+    const { amount, method, forMonth, cardNumber, provider, providerName } = req.body || {};
+    if (!Number.isSafeInteger(amount) || amount <= 0 ||
+        (forMonth !== undefined && !validPaymentMonth(forMonth))) {
+      return res.status(400).json({ message: 'To‘lov summasi, usuli va forMonth (YYYY-MM) ni to‘g‘ri kiriting.' });
     }
+    let details;
+    try { details = await paymentDetails({ method, cardNumber, provider, providerName }, paymentApps); }
+    catch (error) { return res.status(400).json({ message: error.message }); }
     try {
       const payment = {
         _id: new ObjectId(),
@@ -315,17 +414,22 @@ function registerCustomerRoutes(app, { authenticate, customers, counters, region
         method,
         receivedBy: res.locals.currentUser._id,
         paidAt: new Date(now()),
+        forMonth: forMonth ?? null,
+        ...details,
       };
-      const updated = await customers.findOneAndUpdate(
-        { mijoz_id: Number(req.params.mijoz_id), remainingBalance: { $gte: amount } },
-        {
-          $push: { payments: payment },
-          $inc: { totalPaid: amount, remainingBalance: -amount },
-          $set: { updatedAt: payment.paidAt },
-        },
-        { returnDocument: 'after' },
-      );
-      if (updated) return res.status(201).json({ payment: publicPayment(payment), customer: publicCustomer(updated) });
+      const session = mongoClient.startSession();
+      let updated;
+      try {
+        await session.withTransaction(async () => {
+          updated = await customers.findOneAndUpdate(
+            { mijoz_id: Number(req.params.mijoz_id), remainingBalance: { $gte: amount } },
+            { $inc: { totalPaid: amount, remainingBalance: -amount }, $set: { updatedAt: payment.paidAt } },
+            { returnDocument: 'after', session },
+          );
+          if (updated) await payments.insertOne({ ...payment, customerId: updated._id, mijoz_id: updated.mijoz_id }, { session });
+        });
+      } finally { await session.endSession(); }
+      if (updated) return res.status(201).json({ paymentId: payment._id.toString(), payment: publicPayment(payment), customer: publicCustomer((await withPayments([updated]))[0]) });
       const customer = await customers.findOne({ mijoz_id: Number(req.params.mijoz_id) });
       if (!customer) return res.status(404).json({ message: 'Mijoz topilmadi.' });
       return res.status(409).json({ message: 'To‘lov qolgan qarzdan katta.' });
