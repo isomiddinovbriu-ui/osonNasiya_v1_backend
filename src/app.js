@@ -30,15 +30,14 @@ const docsHtml = `<!doctype html>
 </body>
 </html>`;
 
-function createApp({ users, loginRequests, refreshSessions, regions, customers, payments, paymentApps, mongoClient, counters, productCategories, products, imageStorage, jwtSecret, corsOrigins = [], logger = console, now = Date.now }) {
+function createApp({ users, loginRequests, refreshSessions, regions, customers, payments, paymentApps, mongoClient, counters, productCategories, products, imageStorage, jwtSecret, logger = console, now = Date.now }) {
   if (!users || !loginRequests || !refreshSessions || !regions || !customers || !payments || !paymentApps || !mongoClient || !jwtSecret) throw new Error('users, loginRequests, refreshSessions, regions, customers, payments, paymentApps, mongoClient va jwtSecret kerak.');
 
   const app = express();
-  const allowedOrigins = new Set(corsOrigins);
   app.disable('x-powered-by');
   app.use((req, res, next) => {
     const origin = req.get('Origin');
-    if (origin && allowedOrigins.has(origin)) {
+    if (origin) {
       res.set('Access-Control-Allow-Origin', origin);
       res.set('Vary', 'Origin');
       res.set('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
@@ -55,7 +54,7 @@ function createApp({ users, loginRequests, refreshSessions, regions, customers, 
   app.get('/docs', (_req, res) => res.type('html').send(docsHtml));
 
   const { authenticate, requireSuperAdmin } = createAuthMiddleware({ users, refreshSessions, jwtSecret, logger, now });
-  registerAuthRoutes(app, { users, loginRequests, refreshSessions, jwtSecret, authenticate, corsOrigins, logger, now });
+  registerAuthRoutes(app, { users, loginRequests, refreshSessions, jwtSecret, authenticate, logger, now });
   registerUserRoutes(app, { users, authenticate, requireSuperAdmin, logger, now });
   registerRegionRoutes(app, { regions, customers, authenticate, logger, now });
   registerCustomerRoutes(app, { authenticate, customers, payments, paymentApps, mongoClient, counters, regions, productCategories, products, logger, now });

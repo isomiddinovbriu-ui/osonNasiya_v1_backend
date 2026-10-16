@@ -142,8 +142,7 @@
         "requestBody": { "required": false, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RefreshRequest" } } } },
         "responses": {
           "200": { "description": "Yangi access token va refresh token yoki cookie", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LoginResponse" } } } },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "403": { "$ref": "#/components/responses/Forbidden" }
+          "401": { "$ref": "#/components/responses/Unauthorized" }
         }
       }
     },
@@ -154,8 +153,7 @@
         "description": "Mobil ilova refreshToken ni JSON bodyda, web ilova cookieda yuboradi. Sessiya bekor qilinadi; unga bog'langan access token ham ishlamaydi.",
         "requestBody": { "required": false, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RefreshRequest" } } } },
         "responses": {
-          "204": { "description": "Sessiya yopildi" },
-          "403": { "$ref": "#/components/responses/Forbidden" }
+          "204": { "description": "Sessiya yopildi" }
         }
       }
     },

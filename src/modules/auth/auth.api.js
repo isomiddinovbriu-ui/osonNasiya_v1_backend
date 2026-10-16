@@ -9,20 +9,13 @@ const {
 const WINDOW_MS = 15 * 60 * 1000;
 const MAX_FAILURES = 10;
 
-function registerAuthRoutes(app, { users, loginRequests, refreshSessions, jwtSecret, authenticate, corsOrigins = [], logger, now }) {
+function registerAuthRoutes(app, { users, loginRequests, refreshSessions, jwtSecret, authenticate, logger, now }) {
   const attempts = new Map();
-  const allowedOrigins = new Set(corsOrigins);
 
   function cookieToken(req) {
     const part = req.get('Cookie')?.split(';').map((value) => value.trim())
       .find((value) => value.startsWith(`${COOKIE_NAME}=`));
     return part?.slice(COOKIE_NAME.length + 1) || null;
-  }
-
-  function trustedCookieOrigin(req) {
-    const origin = req.get('Origin');
-    if (!origin) return false;
-    return allowedOrigins.has(origin) || origin === `https://${req.get('Host')}` || origin === `http://${req.get('Host')}`;
   }
 
   function tokenResponse(res, user, session, refreshToken) {
@@ -97,7 +90,6 @@ function registerAuthRoutes(app, { users, loginRequests, refreshSessions, jwtSec
 
   app.post('/auth/refresh', async (req, res) => {
     const fromCookie = cookieToken(req);
-    if (fromCookie && !trustedCookieOrigin(req)) return res.status(403).json({ message: 'Origin ruxsat etilmagan.' });
     const refreshToken = fromCookie || req.body?.refreshToken;
     if (!refreshToken) return res.status(401).json({ message: 'Sessiya tugadi.' });
     try {
@@ -112,7 +104,6 @@ function registerAuthRoutes(app, { users, loginRequests, refreshSessions, jwtSec
 
   app.post('/auth/logout', async (req, res) => {
     const fromCookie = cookieToken(req);
-    if (fromCookie && !trustedCookieOrigin(req)) return res.status(403).json({ message: 'Origin ruxsat etilmagan.' });
     try {
       await revokeSession(refreshSessions, fromCookie || req.body?.refreshToken, now);
       res.set('Cache-Control', 'no-store');

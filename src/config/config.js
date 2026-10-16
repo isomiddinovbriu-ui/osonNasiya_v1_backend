@@ -41,7 +41,6 @@ function readConfig(env = process.env) {
     minioUseSsl: env.MINIO_USE_SSL === 'true',
     superAdminLogin: env.SUPER_ADMIN_LOGIN?.trim().toLowerCase(),
     superAdminPassword: env.SUPER_ADMIN_PASSWORD,
-    corsOrigins: (env.CORS_ORIGINS || '').split(',').map((origin) => origin.trim()).filter(Boolean),
   };
 }
 

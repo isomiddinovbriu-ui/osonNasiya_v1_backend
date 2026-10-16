@@ -2,6 +2,8 @@
 
 ## Login va sessiya
 
+CORS barcha brauzer originlari uchun ochiq: server so'rovdagi `Origin`ni javobga qaytaradi va cookie bilan ishlaydigan so'rovlarga ruxsat beradi. `CORS_ORIGINS` sozlamasi ishlatilmaydi.
+
 `POST /auth/login` 15 daqiqalik `accessToken` (`token` ham shu qiymat) va `expiresIn: 900` qaytaradi. Mobil ilova `clientType: "mobile"` (standart) yuboradi va javobdagi `refreshToken` ni qurilmaning xavfsiz saqlash joyida saqlaydi. Admin web ilova `clientType: "web"` yuboradi; refresh token `HttpOnly; Secure; SameSite=Strict` cookieda qaytadi. Web so'rovlarida `credentials: "include"` va HTTPS kerak.
 
 Access token muddati tugaganda `POST /auth/refresh` chaqiriladi: mobil ilova `{ "refreshToken": "..." }` yuboradi, web ilova cookieni yuboradi. Javob yangi access token beradi; mobil ilova qaytgan **yangi** refresh tokenni eskisi o'rniga saqlaydi. Har bir refresh sessiya muddatini yana 30 kunga uzaytiradi (`refreshExpiresAt`). Masalan, ilova har ikki kunda ochilib refresh qilinsa, sessiya davom etadi. Oxirgi refreshdan keyin 30 kun o'tsa qayta login kerak. Oddiy API so'rovlari muddatni uzaytirmaydi.

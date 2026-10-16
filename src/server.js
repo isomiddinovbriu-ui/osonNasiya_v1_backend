@@ -60,7 +60,6 @@ async function start() {
       products,
       imageStorage,
       jwtSecret: config.jwtSecret,
-      corsOrigins: config.corsOrigins,
     });
     const server = app.listen(config.port, '0.0.0.0', () => {
       console.log(`OsonNasiya API ${config.port}-portda ishlayapti. Swagger: http://localhost:${config.port}/docs`);
