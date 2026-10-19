@@ -424,6 +424,47 @@
           "409": { "$ref": "#/components/responses/PaymentConflict" }
         }
       }
+    },
+    "/customers/{mijoz_id}/payments/{paymentId}/void": {
+      "post": {
+        "tags": ["Payments"],
+        "summary": "To'lovni sabab bilan bekor qilish (faqat super_admin)",
+        "description": "To'lov o'chirilmaydi: status=voided bo'ladi, balans teskari yangilanadi va audit yozuvi shu MongoDB tranzaksiyasida saqlanadi. Qayta bekor qilish 409 qaytaradi. Boshlang'ich to'lov bekor qilinsa downPayment ham kamayadi.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "mijoz_id", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "paymentId", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[a-fA-F0-9]{24}$" } }
+        ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/VoidPaymentRequest" } } } },
+        "responses": {
+          "200": { "description": "To'lov bekor qilindi", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/VoidPaymentResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/CustomerNotFound" },
+          "409": { "description": "To'lov allaqachon bekor qilingan" }
+        }
+      }
+    },
+    "/customers/{mijoz_id}/audit": {
+      "get": {
+        "tags": ["Payments"],
+        "summary": "Mijoz va to'lovlar audit tarixi (faqat super_admin)",
+        "description": "Yangi yozuvlar uchun yaratilish va to'lovni bekor qilish voqealari. Oldingi yozuvlar uchun tarix orqaga qarab yaratilmaydi.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "mijoz_id", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1, "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } }
+        ],
+        "responses": {
+          "200": { "description": "Audit voqealari", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuditListResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/CustomerNotFound" }
+        }
+      }
     }
   },
   "components": {
@@ -623,7 +664,7 @@
       },
       "Payment": {
         "type": "object",
-        "required": ["id", "paymentId", "type", "amount", "method", "receivedBy", "paidAt", "forMonth", "cardLast4", "provider", "providerName"],
+        "required": ["id", "paymentId", "type", "amount", "method", "receivedBy", "paidAt", "forMonth", "cardLast4", "provider", "providerName", "status", "voidedAt", "voidedBy", "voidReason"],
         "properties": {
           "id": { "type": "string" },
           "paymentId": { "type": "string", "description": "To'lovning server yaratgan IDsi; id bilan bir xil" },
@@ -635,7 +676,11 @@
           "forMonth": { "type": "string", "nullable": true, "pattern": "^(?!0000)[0-9]{4}-(0[1-9]|1[0-2])$", "description": "Qaysi oy uchun to'landi; boshlang'ich va eski oy ko'rsatilmagan to'lovlarda null", "example": "2026-06" },
           "cardLast4": { "type": "string", "nullable": true, "pattern": "^[0-9]{4}$", "description": "card yoki payment_app uchun karta raqamining faqat oxirgi 4 raqami; eski yozuvlarda null" },
           "provider": { "$ref": "#/components/schemas/PaymentProvider", "nullable": true },
-          "providerName": { "type": "string", "nullable": true, "description": "provider=other uchun ilova nomi" }
+          "providerName": { "type": "string", "nullable": true, "description": "provider=other uchun ilova nomi" },
+          "status": { "type": "string", "enum": ["active", "voided"], "description": "Eski to'lovlarda ham active qaytadi" },
+          "voidedAt": { "type": "string", "format": "date-time", "nullable": true },
+          "voidedBy": { "type": "string", "nullable": true, "description": "Bekor qilgan super_admin IDsi" },
+          "voidReason": { "type": "string", "nullable": true, "description": "Bekor qilish sababi" }
         }
       },
       "Customer": {
@@ -709,6 +754,23 @@
           "customer": { "$ref": "#/components/schemas/Customer" }
         }
       },
+      "VoidPaymentRequest": { "type": "object", "additionalProperties": false, "required": ["reason"], "properties": { "reason": { "type": "string", "minLength": 1, "maxLength": 500 } } },
+      "AuditEntry": { "type": "object", "required": ["id", "action", "entityType", "entityId", "mijoz_id", "actorId", "actorRole", "createdAt", "before", "after"], "properties": {
+        "id": { "type": "string" }, "action": { "type": "string", "enum": ["customer.created", "payment.created", "payment.voided"] },
+        "entityType": { "type": "string", "enum": ["customer", "payment"] }, "entityId": { "type": "string" },
+        "mijoz_id": { "type": "integer" }, "actorId": { "type": "string" }, "actorRole": { "type": "string" },
+        "actorName": { "type": "string", "nullable": true }, "createdAt": { "type": "string", "format": "date-time" },
+        "reason": { "type": "string", "nullable": true }, "before": { "type": "object", "nullable": true, "additionalProperties": true },
+        "after": { "type": "object", "nullable": true, "additionalProperties": true }
+      } },
+      "AuditListResponse": { "type": "object", "required": ["entries", "total", "page", "limit"], "properties": {
+        "entries": { "type": "array", "items": { "$ref": "#/components/schemas/AuditEntry" } },
+        "total": { "type": "integer" }, "page": { "type": "integer" }, "limit": { "type": "integer" }
+      } },
+      "VoidPaymentResponse": { "type": "object", "required": ["payment", "customer", "audit"], "properties": {
+        "payment": { "$ref": "#/components/schemas/Payment" }, "customer": { "$ref": "#/components/schemas/Customer" },
+        "audit": { "$ref": "#/components/schemas/AuditEntry" }
+      } },
       "Error": {
         "type": "object",
         "required": ["message"],

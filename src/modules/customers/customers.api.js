@@ -1,6 +1,7 @@
 const { ObjectId } = require('mongodb');
 const { nextCustomerId } = require('./customer-id.service');
 const { methodIds, validProviderCode, paymentDetails } = require('../payments/payment-options');
+const { balanceSnapshot, paymentSnapshot, auditEntry, publicAudit } = require('../payments/payment-audit');
 
 const CREATOR_ROLES = new Set(['super_admin', 'sotuvchi', 'yiguvchi']);
 const ID_FILTERS = ['regionId', 'groupId', 'sectionId', 'productId', 'createdBy', 'paymentId', 'receivedBy'];
@@ -145,6 +146,7 @@ function buildCustomerListQuery(query) {
     (filter.payments ??= { $elemMatch: {} }).$elemMatch._id = new ObjectId(query.paymentId);
   }
   if (filter.payments && !Object.keys(filter.payments.$elemMatch).length) delete filter.payments;
+  if (filter.payments) filter.payments.$elemMatch.status = { $ne: 'voided' };
   return { filter, page, limit };
 }
 
@@ -161,6 +163,10 @@ function publicPayment(payment) {
     cardLast4: payment.cardLast4 ?? null,
     provider: payment.provider ?? null,
     providerName: payment.providerName ?? null,
+    status: payment.status ?? 'active',
+    voidedAt: payment.voidedAt ?? null,
+    voidedBy: payment.voidedBy?.toString() ?? null,
+    voidReason: payment.voidReason ?? null,
   };
 }
 
@@ -222,7 +228,7 @@ function nearbyQuery(query) {
   return { lat, long, radiusMeters };
 }
 
-function registerCustomerRoutes(app, { authenticate, customers, payments, paymentApps, mongoClient, counters, regions, productCategories, products, logger, now }) {
+function registerCustomerRoutes(app, { authenticate, customers, payments, paymentApps, auditLogs, mongoClient, counters, regions, productCategories, products, logger, now }) {
   async function withPayments(items) {
     if (!items.length) return items;
     const rows = await payments.find({ customerId: { $in: items.map((item) => item._id) } })
@@ -343,6 +349,7 @@ function registerCustomerRoutes(app, { authenticate, customers, payments, paymen
         method: paymentMethod,
         receivedBy: actor._id,
         paidAt: createdAt,
+        status: 'active',
         ...initialDetails,
       } : null;
       const document = {
@@ -372,7 +379,15 @@ function registerCustomerRoutes(app, { authenticate, customers, payments, paymen
       try {
         await session.withTransaction(async () => {
           result = await customers.insertOne(document, { session });
-          if (initialPayment) await payments.insertOne({ ...initialPayment, customerId: result.insertedId, mijoz_id: document.mijoz_id }, { session });
+          const savedCustomer = { ...document, _id: result.insertedId };
+          await auditLogs.insertOne(auditEntry({ action: 'customer.created', customer: savedCustomer, actor, createdAt,
+            after: { balance: balanceSnapshot(savedCustomer) } }), { session });
+          if (initialPayment) {
+            await payments.insertOne({ ...initialPayment, customerId: result.insertedId, mijoz_id: document.mijoz_id }, { session });
+            await auditLogs.insertOne(auditEntry({ action: 'payment.created', customer: savedCustomer, payment: initialPayment, actor, createdAt,
+              before: { balance: { downPayment: 0, totalPaid: 0, remainingBalance: totalPrice } },
+              after: { payment: paymentSnapshot(initialPayment), balance: balanceSnapshot(savedCustomer) } }), { session });
+          }
         });
       } finally { await session.endSession(); }
       return res.status(201).json({ customer: publicCustomer({ ...document, _id: result.insertedId, payments: initialPayment ? [initialPayment] : [] }) });
@@ -415,6 +430,7 @@ function registerCustomerRoutes(app, { authenticate, customers, payments, paymen
         receivedBy: res.locals.currentUser._id,
         paidAt: new Date(now()),
         forMonth: forMonth ?? null,
+        status: 'active',
         ...details,
       };
       const session = mongoClient.startSession();
@@ -427,6 +443,11 @@ function registerCustomerRoutes(app, { authenticate, customers, payments, paymen
             { returnDocument: 'after', session },
           );
           if (updated) await payments.insertOne({ ...payment, customerId: updated._id, mijoz_id: updated.mijoz_id }, { session });
+          if (updated) await auditLogs.insertOne(auditEntry({ action: 'payment.created', customer: updated, payment,
+            actor: res.locals.currentUser, createdAt: payment.paidAt,
+            before: { balance: { downPayment: updated.downPayment, totalPaid: updated.totalPaid - amount,
+              remainingBalance: updated.remainingBalance + amount } },
+            after: { payment: paymentSnapshot(payment), balance: balanceSnapshot(updated) } }), { session });
         });
       } finally { await session.endSession(); }
       if (updated) return res.status(201).json({ paymentId: payment._id.toString(), payment: publicPayment(payment), customer: publicCustomer((await withPayments([updated]))[0]) });
@@ -435,6 +456,100 @@ function registerCustomerRoutes(app, { authenticate, customers, payments, paymen
       return res.status(409).json({ message: 'To‘lov qolgan qarzdan katta.' });
     } catch (error) {
       logger.error('To‘lovni yozishda xatolik:', error);
+      return res.status(500).json({ message: 'Serverda xatolik yuz berdi.' });
+    }
+  });
+
+  app.post('/customers/:mijoz_id/payments/:paymentId/void', authenticate, async (req, res) => {
+    if (res.locals.currentUser.role !== 'super_admin') return res.status(403).json({ message: 'Bu amal uchun ruxsat yo‘q.' });
+    if (!validCustomerNumber(req.params.mijoz_id) || !ObjectId.isValid(req.params.paymentId)) {
+      return res.status(400).json({ message: 'Mijoz yoki to‘lov ID noto‘g‘ri.' });
+    }
+    const body = req.body;
+    if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length !== 1 ||
+        typeof body.reason !== 'string' || !body.reason.trim() || body.reason.trim().length > 500) {
+      return res.status(400).json({ message: 'Bekor qilish sababi 1–500 belgidan iborat bo‘lishi kerak.' });
+    }
+    const mijozId = Number(req.params.mijoz_id);
+    const paymentId = new ObjectId(req.params.paymentId);
+    const actor = res.locals.currentUser;
+    const voidedAt = new Date(now());
+    const reason = body.reason.trim();
+    const session = mongoClient.startSession();
+    let updatedPayment;
+    let updatedCustomer;
+    let audit;
+    try {
+      await session.withTransaction(async () => {
+        const previous = await payments.findOne({ _id: paymentId, mijoz_id: mijozId }, { session });
+        if (!previous) {
+          const error = new Error('To‘lov topilmadi.'); error.status = 404; throw error;
+        }
+        if (previous.status === 'voided') {
+          const error = new Error('To‘lov allaqachon bekor qilingan.'); error.status = 409; throw error;
+        }
+        if (!Number.isSafeInteger(previous.amount) || previous.amount <= 0 ||
+            !['initial', 'installment'].includes(previous.type) || !previous.customerId) {
+          const error = new Error('To‘lov ma’lumotlari to‘g‘ri emas.'); error.status = 409; throw error;
+        }
+        updatedPayment = await payments.findOneAndUpdate(
+          { _id: paymentId, mijoz_id: mijozId, status: { $ne: 'voided' } },
+          { $set: { status: 'voided', voidedAt, voidedBy: actor._id, voidReason: reason } },
+          { returnDocument: 'after', session },
+        );
+        if (!updatedPayment) {
+          const error = new Error('To‘lov allaqachon bekor qilingan.'); error.status = 409; throw error;
+        }
+        const balanceChange = { totalPaid: -previous.amount, remainingBalance: previous.amount };
+        if (previous.type === 'initial') balanceChange.downPayment = -previous.amount;
+        updatedCustomer = await customers.findOneAndUpdate(
+          { _id: previous.customerId, mijoz_id: mijozId, totalPaid: { $gte: previous.amount },
+            ...(previous.type === 'initial' && { downPayment: { $gte: previous.amount } }) },
+          { $inc: balanceChange, $set: { updatedAt: voidedAt } },
+          { returnDocument: 'after', session },
+        );
+        if (!updatedCustomer) throw new Error('To‘lov va mijoz balansi mos emas.');
+        audit = auditEntry({ action: 'payment.voided', customer: updatedCustomer, payment: previous,
+          actor, createdAt: voidedAt, reason,
+          before: { payment: paymentSnapshot(previous), balance: {
+            downPayment: updatedCustomer.downPayment + (previous.type === 'initial' ? previous.amount : 0),
+            totalPaid: updatedCustomer.totalPaid + previous.amount,
+            remainingBalance: updatedCustomer.remainingBalance - previous.amount,
+          } },
+          after: { payment: paymentSnapshot(updatedPayment), balance: balanceSnapshot(updatedCustomer) } });
+        const result = await auditLogs.insertOne(audit, { session });
+        audit._id = result.insertedId;
+      });
+      return res.json({ payment: publicPayment(updatedPayment), customer: publicCustomer((await withPayments([updatedCustomer]))[0]), audit: publicAudit(audit) });
+    } catch (error) {
+      if (error.status) return res.status(error.status).json({ message: error.message });
+      logger.error('To‘lovni bekor qilishda xatolik:', error);
+      return res.status(500).json({ message: 'Serverda xatolik yuz berdi.' });
+    } finally { await session.endSession(); }
+  });
+
+  app.get('/customers/:mijoz_id/audit', authenticate, async (req, res) => {
+    if (res.locals.currentUser.role !== 'super_admin') return res.status(403).json({ message: 'Bu amal uchun ruxsat yo‘q.' });
+    if (!validCustomerNumber(req.params.mijoz_id)) return res.status(400).json({ message: 'mijoz_id noto‘g‘ri.' });
+    if (Object.keys(req.query).some((key) => !['page', 'limit'].includes(key)) ||
+        Object.values(req.query).some((value) => typeof value !== 'string' || !/^[1-9]\d*$/.test(value))) {
+      return res.status(400).json({ message: 'page yoki limit noto‘g‘ri.' });
+    }
+    const page = Number(req.query.page ?? 1);
+    const limit = Number(req.query.limit ?? 20);
+    if (!Number.isSafeInteger(page) || !Number.isSafeInteger(limit) || limit > 100 ||
+        !Number.isSafeInteger((page - 1) * limit)) return res.status(400).json({ message: 'page yoki limit noto‘g‘ri.' });
+    try {
+      const mijozId = Number(req.params.mijoz_id);
+      if (!await customers.findOne({ mijoz_id: mijozId })) return res.status(404).json({ message: 'Mijoz topilmadi.' });
+      const filter = { mijoz_id: mijozId };
+      const [total, entries] = await Promise.all([
+        auditLogs.countDocuments(filter),
+        auditLogs.find(filter).sort({ createdAt: -1, _id: -1 }).skip((page - 1) * limit).limit(limit).toArray(),
+      ]);
+      return res.json({ entries: entries.map(publicAudit), total, page, limit });
+    } catch (error) {
+      logger.error('Audit tarixini olishda xatolik:', error);
       return res.status(500).json({ message: 'Serverda xatolik yuz berdi.' });
     }
   });

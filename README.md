@@ -65,3 +65,11 @@ Keyingi to‘lovda `forMonth` qaysi oy uchun to‘langanini bildiradi: `POST /cu
 Mahsulotning `universalId` maydoni `UD-YYMMDDNNN` ko‘rinishida avtomatik beriladi: masalan, `UD-261015001`. Sana Toshkent vaqti bo‘yicha olinadi, tartib raqami har kuni `001`dan boshlanadi; `099`dan keyin `100`, `999`dan keyin `1000` bo‘ladi. U barcha mahsulot GET javoblarida va yaratish/yangilash javoblarida qaytadi; mavjud MongoDB `id` ham saqlanadi. `GET /products/search?search=UD-261015001` bilan qidirish mumkin. `npm run migrate:product-ids` mavjud mahsulotlarni yaratilgan sanasi bo‘yicha raqamlaydi; server ishga tushganda ham tekshiriladi.
 
 Mahsulot yaratishda `warrantyPeriod` majburiy: `1.6` — 1 yil 6 oy. 10 yoki 11 oy uchun `"1.10"` yoki `"1.11"` matnini yuboring. Maydonni `PATCH /products/{id}` orqali yangilash mumkin; eski mahsulotlarda javob qiymati `null` bo‘ladi.
+
+## Audit va noto'g'ri to'lovni bekor qilish
+
+Yangi mijoz va to'lovlar yaratilganda `audit_logs` collectionga kim, qachon, qaysi yozuvni yaratgani yoziladi. To'lovni bekor qilish ham auditga oldingi va keyingi to'lov holati hamda balans bilan yoziladi. Audit va balans o'zgarishi to'lov yozuvi bilan bir MongoDB tranzaksiyasida saqlanadi. Eski amallar uchun tarix avtomatik tiklanmaydi.
+
+Faqat `super_admin` `POST /customers/{mijoz_id}/payments/{paymentId}/void` so'roviga `{"reason":"Kassa qaydida xato"}` yuborib to'lovni bekor qiladi. Sabab 1–500 belgidan iborat bo'lishi kerak. To'lov o'chirilmaydi: `status: "voided"`, `voidedAt`, `voidedBy` va `voidReason` bilan tarixda qoladi. Balansdan ushbu summa ayriladi va qarzga qaytariladi; boshlang'ich to'lov bekor qilinsa `downPayment` ham kamayadi. Bir to'lovni qayta bekor qilish `409` qaytaradi. Eski, bekor qilinmagan to'lovlar javobida `status: "active"` bo'ladi. To'lov bo'yicha mijoz qidirish filtrlari bekor qilingan to'lovlarni hisobga olmaydi.
+
+`GET /customers/{mijoz_id}/audit?page=1&limit=20` faqat `super_admin`ga mijozning audit tarixini yangi yozuvdan boshlab qaytaradi. Har bir yozuvda `action`, `entityType`, `entityId`, `actorId`, `actorRole`, `createdAt`, `reason`, `before` va `after` bor. Barcha endpointlar `/docs` da ham hujjatlashtirilgan.

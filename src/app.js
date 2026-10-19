@@ -30,8 +30,8 @@ const docsHtml = `<!doctype html>
 </body>
 </html>`;
 
-function createApp({ users, loginRequests, refreshSessions, regions, customers, payments, paymentApps, mongoClient, counters, productCategories, products, imageStorage, jwtSecret, logger = console, now = Date.now }) {
-  if (!users || !loginRequests || !refreshSessions || !regions || !customers || !payments || !paymentApps || !mongoClient || !jwtSecret) throw new Error('users, loginRequests, refreshSessions, regions, customers, payments, paymentApps, mongoClient va jwtSecret kerak.');
+function createApp({ users, loginRequests, refreshSessions, regions, customers, payments, paymentApps, auditLogs, mongoClient, counters, productCategories, products, imageStorage, jwtSecret, logger = console, now = Date.now }) {
+  if (!users || !loginRequests || !refreshSessions || !regions || !customers || !payments || !paymentApps || !auditLogs || !mongoClient || !jwtSecret) throw new Error('users, loginRequests, refreshSessions, regions, customers, payments, paymentApps, auditLogs, mongoClient va jwtSecret kerak.');
 
   const app = express();
   app.disable('x-powered-by');
@@ -57,7 +57,7 @@ function createApp({ users, loginRequests, refreshSessions, regions, customers, 
   registerAuthRoutes(app, { users, loginRequests, refreshSessions, jwtSecret, authenticate, logger, now });
   registerUserRoutes(app, { users, authenticate, requireSuperAdmin, logger, now });
   registerRegionRoutes(app, { regions, customers, authenticate, logger, now });
-  registerCustomerRoutes(app, { authenticate, customers, payments, paymentApps, mongoClient, counters, regions, productCategories, products, logger, now });
+  registerCustomerRoutes(app, { authenticate, customers, payments, paymentApps, auditLogs, mongoClient, counters, regions, productCategories, products, logger, now });
   registerPaymentRoutes(app, { authenticate, paymentApps, logger });
   if (productCategories && products && imageStorage) {
     registerCatalogRoutes(app, { authenticate, productCategories, products, customers, counters, imageStorage, logger, now });

@@ -24,6 +24,7 @@ async function start() {
     const productCategories = client.db().collection('product_categories');
     const products = client.db().collection('products');
     const payments = client.db().collection('payments');
+    const auditLogs = client.db().collection('audit_logs');
     const paymentApps = client.db().collection('payment_apps');
     const imageStorage = createProductStorage(config);
     await seedSuperAdmin(users, config);
@@ -40,6 +41,8 @@ async function start() {
     await payments.createIndex({ customerId: 1, paidAt: 1 });
     await payments.createIndex({ forMonth: 1, customerId: 1 });
     await payments.createIndex({ paidAt: -1 });
+    await auditLogs.createIndex({ mijoz_id: 1, createdAt: -1, _id: -1 });
+    await auditLogs.createIndex({ entityType: 1, entityId: 1, createdAt: -1 });
     await migratePayments(customers, payments);
     await seedPaymentApps(paymentApps);
     await productCategories.createIndex({ parentId: 1, nameKey: 1 }, { unique: true });
@@ -53,6 +56,7 @@ async function start() {
       regions,
       customers,
       payments,
+      auditLogs,
       paymentApps,
       mongoClient: client,
       counters,
