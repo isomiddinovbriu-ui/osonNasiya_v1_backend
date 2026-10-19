@@ -2,6 +2,7 @@ const { ObjectId } = require('mongodb');
 const { nextCustomerId } = require('./customer-id.service');
 const { methodIds, validProviderCode, paymentDetails } = require('../payments/payment-options');
 const { balanceSnapshot, paymentSnapshot, auditEntry, publicAudit } = require('../payments/payment-audit');
+const { paymentRequestHash, validIdempotencyKey } = require('../payments/payment-idempotency');
 
 const CREATOR_ROLES = new Set(['super_admin', 'sotuvchi', 'yiguvchi']);
 const ID_FILTERS = ['regionId', 'groupId', 'sectionId', 'productId', 'createdBy', 'paymentId', 'receivedBy'];
@@ -228,10 +229,10 @@ function nearbyQuery(query) {
   return { lat, long, radiusMeters };
 }
 
-function registerCustomerRoutes(app, { authenticate, customers, payments, paymentApps, auditLogs, mongoClient, counters, regions, productCategories, products, logger, now }) {
-  async function withPayments(items) {
+function registerCustomerRoutes(app, { authenticate, customers, payments, paymentApps, paymentRequests, auditLogs, mongoClient, counters, regions, productCategories, products, jwtSecret, logger, now }) {
+  async function withPayments(items, session) {
     if (!items.length) return items;
-    const rows = await payments.find({ customerId: { $in: items.map((item) => item._id) } })
+    const rows = await payments.find({ customerId: { $in: items.map((item) => item._id) } }, session ? { session } : undefined)
       .sort({ paidAt: 1, _id: 1 }).toArray();
     const byCustomer = new Map();
     for (const row of rows) {
@@ -413,15 +414,32 @@ function registerCustomerRoutes(app, { authenticate, customers, payments, paymen
   app.post('/customers/:mijoz_id/payments', authenticate, async (req, res) => {
     if (!CREATOR_ROLES.has(res.locals.currentUser.role)) return res.status(403).json({ message: 'Bu amal uchun ruxsat yo‘q.' });
     if (!validCustomerNumber(req.params.mijoz_id)) return res.status(400).json({ message: 'mijoz_id noto‘g‘ri.' });
+    const idempotencyKey = req.headers['idempotency-key'];
+    if (idempotencyKey !== undefined && !validIdempotencyKey(idempotencyKey)) {
+      return res.status(400).json({ message: 'Idempotency-Key 8–128 belgili harf, raqam, nuqta, chiziq, pastki chiziq yoki ikki nuqtadan iborat bo‘lishi kerak.' });
+    }
     const { amount, method, forMonth, cardNumber, provider, providerName } = req.body || {};
     if (!Number.isSafeInteger(amount) || amount <= 0 ||
         (forMonth !== undefined && !validPaymentMonth(forMonth))) {
       return res.status(400).json({ message: 'To‘lov summasi, usuli va forMonth (YYYY-MM) ni to‘g‘ri kiriting.' });
     }
-    let details;
-    try { details = await paymentDetails({ method, cardNumber, provider, providerName }, paymentApps); }
-    catch (error) { return res.status(400).json({ message: error.message }); }
+    const actorId = res.locals.currentUser._id;
+    const mijozId = Number(req.params.mijoz_id);
+    const requestHash = idempotencyKey ? paymentRequestHash(jwtSecret, mijozId, req.body) : null;
+    const requestFilter = idempotencyKey ? { actorId, key: idempotencyKey } : null;
+    function replay(existing) {
+      if (existing.requestHash !== requestHash) return res.status(409).json({ message: 'Idempotency-Key boshqa so‘rov uchun ishlatilgan.' });
+      res.set('Idempotency-Replayed', 'true');
+      return res.status(201).json(existing.response);
+    }
     try {
+      if (requestFilter) {
+        const existing = await paymentRequests.findOne(requestFilter);
+        if (existing) return replay(existing);
+      }
+      let details;
+      try { details = await paymentDetails({ method, cardNumber, provider, providerName }, paymentApps); }
+      catch (error) { return res.status(400).json({ message: error.message }); }
       const payment = {
         _id: new ObjectId(),
         type: 'installment',
@@ -435,26 +453,47 @@ function registerCustomerRoutes(app, { authenticate, customers, payments, paymen
       };
       const session = mongoClient.startSession();
       let updated;
+      let savedResponse;
       try {
         await session.withTransaction(async () => {
+          if (requestFilter) {
+            await paymentRequests.insertOne({ ...requestFilter, requestHash, createdAt: payment.paidAt }, { session });
+          }
           updated = await customers.findOneAndUpdate(
-            { mijoz_id: Number(req.params.mijoz_id), remainingBalance: { $gte: amount } },
+            { mijoz_id: mijozId, remainingBalance: { $gte: amount } },
             { $inc: { totalPaid: amount, remainingBalance: -amount }, $set: { updatedAt: payment.paidAt } },
             { returnDocument: 'after', session },
           );
-          if (updated) await payments.insertOne({ ...payment, customerId: updated._id, mijoz_id: updated.mijoz_id }, { session });
-          if (updated) await auditLogs.insertOne(auditEntry({ action: 'payment.created', customer: updated, payment,
+          if (!updated) {
+            const customer = await customers.findOne({ mijoz_id: mijozId }, { session });
+            const error = new Error(customer ? 'To‘lov qolgan qarzdan katta.' : 'Mijoz topilmadi.');
+            error.status = customer ? 409 : 404;
+            throw error;
+          }
+          await payments.insertOne({ ...payment, customerId: updated._id, mijoz_id: updated.mijoz_id }, { session });
+          await auditLogs.insertOne(auditEntry({ action: 'payment.created', customer: updated, payment,
             actor: res.locals.currentUser, createdAt: payment.paidAt,
             before: { balance: { downPayment: updated.downPayment, totalPaid: updated.totalPaid - amount,
               remainingBalance: updated.remainingBalance + amount } },
             after: { payment: paymentSnapshot(payment), balance: balanceSnapshot(updated) } }), { session });
+          if (requestFilter) {
+            savedResponse = { paymentId: payment._id.toString(), payment: publicPayment(payment),
+              customer: publicCustomer((await withPayments([updated], session))[0]) };
+            const stored = await paymentRequests.updateOne(requestFilter, { $set: { response: savedResponse, paymentId: payment._id,
+              customerId: updated._id, completedAt: payment.paidAt } }, { session });
+            if (stored.matchedCount !== 1) throw new Error('Idempotency yozuvi topilmadi.');
+          }
         });
       } finally { await session.endSession(); }
-      if (updated) return res.status(201).json({ paymentId: payment._id.toString(), payment: publicPayment(payment), customer: publicCustomer((await withPayments([updated]))[0]) });
-      const customer = await customers.findOne({ mijoz_id: Number(req.params.mijoz_id) });
-      if (!customer) return res.status(404).json({ message: 'Mijoz topilmadi.' });
-      return res.status(409).json({ message: 'To‘lov qolgan qarzdan katta.' });
+      return res.status(201).json(savedResponse ?? { paymentId: payment._id.toString(), payment: publicPayment(payment), customer: publicCustomer((await withPayments([updated]))[0]) });
     } catch (error) {
+      if (error.code === 11000 && requestFilter) {
+        try {
+          const existing = await paymentRequests.findOne(requestFilter);
+          if (existing) return replay(existing);
+        } catch (lookupError) { logger.error('Takroriy to‘lovni tekshirishda xatolik:', lookupError); }
+      }
+      if (error.status) return res.status(error.status).json({ message: error.message });
       logger.error('To‘lovni yozishda xatolik:', error);
       return res.status(500).json({ message: 'Serverda xatolik yuz berdi.' });
     }

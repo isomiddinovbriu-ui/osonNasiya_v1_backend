@@ -30,8 +30,8 @@ const docsHtml = `<!doctype html>
 </body>
 </html>`;
 
-function createApp({ users, loginRequests, refreshSessions, regions, customers, payments, paymentApps, auditLogs, mongoClient, counters, productCategories, products, imageStorage, jwtSecret, logger = console, now = Date.now }) {
-  if (!users || !loginRequests || !refreshSessions || !regions || !customers || !payments || !paymentApps || !auditLogs || !mongoClient || !jwtSecret) throw new Error('users, loginRequests, refreshSessions, regions, customers, payments, paymentApps, auditLogs, mongoClient va jwtSecret kerak.');
+function createApp({ users, loginRequests, refreshSessions, regions, customers, payments, paymentApps, paymentRequests, auditLogs, mongoClient, counters, productCategories, products, imageStorage, jwtSecret, logger = console, now = Date.now }) {
+  if (!users || !loginRequests || !refreshSessions || !regions || !customers || !payments || !paymentApps || !paymentRequests || !auditLogs || !mongoClient || !jwtSecret) throw new Error('users, loginRequests, refreshSessions, regions, customers, payments, paymentApps, paymentRequests, auditLogs, mongoClient va jwtSecret kerak.');
 
   const app = express();
   app.disable('x-powered-by');
@@ -41,7 +41,7 @@ function createApp({ users, loginRequests, refreshSessions, regions, customers, 
       res.set('Access-Control-Allow-Origin', origin);
       res.set('Vary', 'Origin');
       res.set('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
-      res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, Idempotency-Key');
       res.set('Access-Control-Allow-Credentials', 'true');
     }
     if (req.method === 'OPTIONS') return res.sendStatus(204);
@@ -57,7 +57,7 @@ function createApp({ users, loginRequests, refreshSessions, regions, customers, 
   registerAuthRoutes(app, { users, loginRequests, refreshSessions, jwtSecret, authenticate, logger, now });
   registerUserRoutes(app, { users, authenticate, requireSuperAdmin, logger, now });
   registerRegionRoutes(app, { regions, customers, authenticate, logger, now });
-  registerCustomerRoutes(app, { authenticate, customers, payments, paymentApps, auditLogs, mongoClient, counters, regions, productCategories, products, logger, now });
+  registerCustomerRoutes(app, { authenticate, customers, payments, paymentApps, paymentRequests, auditLogs, mongoClient, counters, regions, productCategories, products, jwtSecret, logger, now });
   registerPaymentRoutes(app, { authenticate, paymentApps, logger });
   if (productCategories && products && imageStorage) {
     registerCatalogRoutes(app, { authenticate, productCategories, products, customers, counters, imageStorage, logger, now });

@@ -406,22 +406,26 @@
       "post": {
         "tags": ["Payments"],
         "summary": "Mijozning keyingi to'lovini yozish",
-        "description": "Har bir to'lov ixtiyoriy musbat butun so'm summasida yoziladi: oyma-oy belgilangan summa, ketma-ket oylar yoki termMonths muddati bilan cheklanmaydi. forMonth qaysi oy uchun berilganini bildiradi (masalan, oktabrda yozilgan to'lov 2026-06 uchun bo'lishi mumkin); paidAt esa haqiqiy to'lov sanasi. Bir nechta eski oy uchun alohida to'lovlar yozing. forMonth berilmagan eski mijoz ilovalari ishlashda davom etadi, bunday yozuvlarda forMonth null bo'ladi. Summa qolgan qarzdan oshmasligi kerak. To'lov va mijoz balansi MongoDB tranzaksiyasida birga saqlanadi.",
+        "description": "Har bir to'lov ixtiyoriy musbat butun so'm summasida yoziladi: oyma-oy belgilangan summa, ketma-ket oylar yoki termMonths muddati bilan cheklanmaydi. forMonth qaysi oy uchun berilganini bildiradi; paidAt esa haqiqiy to'lov sanasi. Summa qolgan qarzdan oshmasligi kerak. Idempotency-Key yuborilsa, shu xodimning bir xil mijozga bir xil JSON mazmunli takroriy so'rovi avvalgi 201 javobni qaytaradi va balansga qayta ta'sir qilmaydi. Bir kalitni boshqa so'rov uchun ishlatish 409 qaytaradi. Kalitsiz so'rovlar avvalgidek ishlaydi. To'lov, audit, balans va kalit yozuvi bitta MongoDB tranzaksiyasida saqlanadi.",
         "security": [{ "bearerAuth": [] }],
-        "parameters": [{ "name": "mijoz_id", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } }],
+        "parameters": [
+          { "name": "mijoz_id", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "Idempotency-Key", "in": "header", "required": false, "description": "Har bir yangi to'lov uchun yangi noyob kalit (masalan, UUID). Qayta urinishda aynan shu kalit va JSON mazmunini yuboring. 8–128 belgi: harf, raqam, nuqta, tire, pastki chiziq yoki ikki nuqta.", "schema": { "type": "string", "minLength": 8, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]+$" } }
+        ],
         "requestBody": {
           "required": true,
           "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AddPaymentRequest" } } }
         },
         "responses": {
           "201": {
-            "description": "To'lov yozildi",
+            "description": "To'lov yozildi yoki oldingi 201 javob qaytarildi; takrorda Idempotency-Replayed: true header bor",
+            "headers": { "Idempotency-Replayed": { "description": "Bir xil so'rovning takroriy javobida true", "schema": { "type": "string", "enum": ["true"] } } },
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AddPaymentResponse" } } }
           },
           "400": { "$ref": "#/components/responses/BadRequest" },
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "404": { "$ref": "#/components/responses/CustomerNotFound" },
-          "409": { "$ref": "#/components/responses/PaymentConflict" }
+          "409": { "description": "Summa qolgan qarzdan katta yoki kalit boshqa so'rov uchun ishlatilgan", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
         }
       }
     },
