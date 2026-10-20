@@ -148,14 +148,15 @@ function registerReportRoutes(app, { authenticate, customers, payments, regions,
         const expected = monthlyExpected(customer, month);
         if (!expected || expected.amount <= 0) continue;
         const paidAmount = paidByCustomer.get(customer._id.toString()) ?? 0;
-        if (paidAmount <= 0 || paidAmount >= expected.amount ||
+        if (paidAmount >= expected.amount ||
             customer.totalPaid - customer.downPayment >= expected.throughMonth) continue;
         total++;
         if (total <= (page - 1) * limit || rows.length >= limit) continue;
         rows.push({ mijoz_id: customer.mijoz_id, name: customer.name,
           regionId: customer.regionId?.toString() ?? null, monthlyAmount: expected.amount,
           paidAmount, shortfall: expected.amount - paidAmount,
-          status: 'underpaid', message: 'Oylik to‘lovdan kam to‘landi' });
+          status: paidAmount === 0 ? 'unpaid' : 'underpaid',
+          message: paidAmount === 0 ? 'Oylik to‘lov qilinmadi' : 'Oylik to‘lovdan kam to‘landi' });
       }
       return sendReport(res, req.query.format, `monthly-underpaid-${month}-page-${page}.csv`,
         [['mijoz_id', 'mijoz_id'], ['name', 'name'], ['regionId', 'regionId'],

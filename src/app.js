@@ -4,6 +4,8 @@ const { registerAuthRoutes } = require('./modules/auth/auth.api');
 const { registerUserRoutes } = require('./modules/users/users.api');
 const { registerRegionRoutes } = require('./modules/regions/regions.api');
 const { registerCustomerRoutes } = require('./modules/customers/customers.api');
+const { registerContactRoutes } = require('./modules/contacts/contacts.api');
+const { registerWorklistRoutes } = require('./modules/collections/worklist.api');
 const { registerCatalogRoutes } = require('./modules/catalog/catalog.api');
 const { registerPaymentRoutes } = require('./modules/payments/payments.api');
 const { registerReportRoutes } = require('./modules/reports/reports.api');
@@ -31,7 +33,7 @@ const docsHtml = `<!doctype html>
 </body>
 </html>`;
 
-function createApp({ users, loginRequests, refreshSessions, regions, customers, payments, paymentApps, paymentRequests, auditLogs, mongoClient, counters, productCategories, products, imageStorage, jwtSecret, logger = console, now = Date.now }) {
+function createApp({ users, loginRequests, refreshSessions, regions, customers, contacts, payments, paymentApps, paymentRequests, auditLogs, mongoClient, counters, productCategories, products, imageStorage, jwtSecret, logger = console, now = Date.now }) {
   if (!users || !loginRequests || !refreshSessions || !regions || !customers || !payments || !paymentApps || !paymentRequests || !auditLogs || !mongoClient || !jwtSecret) throw new Error('users, loginRequests, refreshSessions, regions, customers, payments, paymentApps, paymentRequests, auditLogs, mongoClient va jwtSecret kerak.');
 
   const app = express();
@@ -58,7 +60,9 @@ function createApp({ users, loginRequests, refreshSessions, regions, customers, 
   registerAuthRoutes(app, { users, loginRequests, refreshSessions, jwtSecret, authenticate, logger, now });
   registerUserRoutes(app, { users, authenticate, requireSuperAdmin, logger, now });
   registerRegionRoutes(app, { regions, customers, authenticate, logger, now });
-  registerCustomerRoutes(app, { authenticate, customers, payments, paymentApps, paymentRequests, auditLogs, mongoClient, counters, regions, productCategories, products, jwtSecret, logger, now });
+  registerCustomerRoutes(app, { authenticate, users, customers, payments, paymentApps, paymentRequests, auditLogs, mongoClient, counters, regions, productCategories, products, jwtSecret, logger, now });
+  if (contacts) registerContactRoutes(app, { authenticate, customers, contacts, payments, logger, now });
+  registerWorklistRoutes(app, { authenticate, customers, logger, now });
   registerPaymentRoutes(app, { authenticate, paymentApps, logger });
   registerReportRoutes(app, { authenticate, customers, payments, regions, users, logger, now });
   if (productCategories && products && imageStorage) {

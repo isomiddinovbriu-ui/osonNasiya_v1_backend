@@ -5,7 +5,7 @@ const { balanceSnapshot, paymentSnapshot, auditEntry, publicAudit } = require('.
 const { paymentRequestHash, validIdempotencyKey } = require('../payments/payment-idempotency');
 
 const CREATOR_ROLES = new Set(['super_admin', 'sotuvchi', 'yiguvchi']);
-const ID_FILTERS = ['regionId', 'groupId', 'sectionId', 'productId', 'createdBy', 'paymentId', 'receivedBy'];
+const ID_FILTERS = ['regionId', 'groupId', 'sectionId', 'productId', 'createdBy', 'assignedTo', 'paymentId', 'receivedBy'];
 const TEXT_FILTERS = ['name', 'productName', 'description'];
 const SEARCH_FIELDS = [...TEXT_FILTERS, 'phoneNumber', 'addPhoneNumber'];
 const NUMBER_FILTERS = {
@@ -177,6 +177,8 @@ function publicCustomer(customer) {
     name: customer.name,
     phoneNumber: customer.phoneNumber,
     addPhoneNumber: customer.addPhoneNumber ?? null,
+    address: customer.address ?? null,
+    assignedTo: customer.assignedTo?.toString() ?? null,
     productName: customer.productName,
     groupId: customer.groupId?.toString() || null,
     sectionId: customer.sectionId?.toString() || null,
@@ -229,7 +231,7 @@ function nearbyQuery(query) {
   return { lat, long, radiusMeters };
 }
 
-function registerCustomerRoutes(app, { authenticate, customers, payments, paymentApps, paymentRequests, auditLogs, mongoClient, counters, regions, productCategories, products, jwtSecret, logger, now }) {
+function registerCustomerRoutes(app, { authenticate, users, customers, payments, paymentApps, paymentRequests, auditLogs, mongoClient, counters, regions, productCategories, products, jwtSecret, logger, now }) {
   async function withPayments(items, session) {
     if (!items.length) return items;
     const rows = await payments.find({ customerId: { $in: items.map((item) => item._id) } }, session ? { session } : undefined)
@@ -299,6 +301,7 @@ function registerCustomerRoutes(app, { authenticate, customers, payments, paymen
     const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
     const phoneNumber = typeof req.body?.phoneNumber === 'string' ? req.body.phoneNumber.trim() : '';
     const addPhoneNumber = req.body?.addPhoneNumber;
+    const address = req.body?.address;
     const description = req.body?.description === undefined ? '' : req.body.description;
     const { groupId, sectionId, productId, regionId, lat, long, totalPrice, downPayment, termMonths, paymentMethod,
       cardNumber, provider, providerName } = req.body || {};
@@ -312,7 +315,8 @@ function registerCustomerRoutes(app, { authenticate, customers, payments, paymen
         !Number.isSafeInteger(downPayment) || downPayment < 0 || downPayment > totalPrice ||
         !Number.isInteger(termMonths) || termMonths < 1 || termMonths > 120 ||
         (downPayment === 0 && (paymentMethod != null || cardNumber !== undefined || provider !== undefined || providerName !== undefined)) ||
-        typeof description !== 'string' || description.length > 1000) {
+        typeof description !== 'string' || description.length > 1000 ||
+        (address !== undefined && address !== null && (typeof address !== 'string' || address.trim().length > 500))) {
       return res.status(400).json({ message: 'Mijoz, telefon raqamlari, guruh, bo‘lim, mahsulot, hudud, lat, long, narx, muddat va boshlang‘ich to‘lov ma’lumotlarini to‘g‘ri kiriting.' });
     }
 
@@ -357,6 +361,8 @@ function registerCustomerRoutes(app, { authenticate, customers, payments, paymen
         name,
         phoneNumber,
         addPhoneNumber: typeof addPhoneNumber === 'string' && addPhoneNumber.trim() ? addPhoneNumber.trim() : null,
+        address: typeof address === 'string' && address.trim() ? address.trim() : null,
+        assignedTo: null,
         productName: product.name,
         groupId: group._id,
         sectionId: section._id,
@@ -409,6 +415,140 @@ function registerCustomerRoutes(app, { authenticate, customers, payments, paymen
       logger.error('Mijozni olishda xatolik:', error);
       return res.status(500).json({ message: 'Serverda xatolik yuz berdi.' });
     }
+  });
+
+  app.patch('/customers/:mijoz_id', authenticate, async (req, res) => {
+    if (!CREATOR_ROLES.has(res.locals.currentUser.role)) return res.status(403).json({ message: 'Bu amal uchun ruxsat yo‘q.' });
+    if (!validCustomerNumber(req.params.mijoz_id)) return res.status(400).json({ message: 'mijoz_id noto‘g‘ri.' });
+    const body = req.body;
+    const allowed = new Set(['name', 'phoneNumber', 'addPhoneNumber', 'address', 'lat', 'long', 'assignedTo']);
+    if (!body || typeof body !== 'object' || Array.isArray(body) || !Object.keys(body).length ||
+        Object.keys(body).some((field) => !allowed.has(field))) {
+      return res.status(400).json({ message: 'O‘zgartiriladigan mijoz maydonlarini to‘g‘ri kiriting.' });
+    }
+    if ('assignedTo' in body && res.locals.currentUser.role !== 'super_admin') {
+      return res.status(403).json({ message: 'Mas’ul xodimni faqat super_admin o‘zgartiradi.' });
+    }
+    const changes = {};
+    if ('name' in body) {
+      if (typeof body.name !== 'string' || !body.name.trim() || body.name.trim().length > 100) return res.status(400).json({ message: 'Ism noto‘g‘ri.' });
+      changes.name = body.name.trim();
+    }
+    if ('phoneNumber' in body) {
+      if (!validPhone(body.phoneNumber?.trim?.())) return res.status(400).json({ message: 'Telefon raqami noto‘g‘ri.' });
+      changes.phoneNumber = body.phoneNumber.trim();
+    }
+    if ('addPhoneNumber' in body) {
+      if (body.addPhoneNumber !== null && typeof body.addPhoneNumber !== 'string') return res.status(400).json({ message: 'Qo‘shimcha telefon noto‘g‘ri.' });
+      const value = body.addPhoneNumber?.trim() || null;
+      if (value && !validPhone(value)) return res.status(400).json({ message: 'Qo‘shimcha telefon noto‘g‘ri.' });
+      changes.addPhoneNumber = value;
+    }
+    if ('address' in body) {
+      if (body.address !== null && (typeof body.address !== 'string' || body.address.trim().length > 500)) return res.status(400).json({ message: 'Manzil 500 belgidan oshmasligi kerak.' });
+      changes.address = body.address?.trim() || null;
+    }
+    if ('lat' in body || 'long' in body) {
+      if (!('lat' in body && 'long' in body) || typeof body.lat !== 'number' || !Number.isFinite(body.lat) || body.lat < -90 || body.lat > 90 ||
+          typeof body.long !== 'number' || !Number.isFinite(body.long) || body.long < -180 || body.long > 180) {
+        return res.status(400).json({ message: 'lat va long koordinatalarini birga to‘g‘ri kiriting.' });
+      }
+      changes.lat = body.lat;
+      changes.long = body.long;
+    }
+    if ('assignedTo' in body) {
+      if (body.assignedTo !== null && (typeof body.assignedTo !== 'string' || !/^[0-9a-fA-F]{24}$/.test(body.assignedTo))) return res.status(400).json({ message: 'Mas’ul xodim ID noto‘g‘ri.' });
+      changes.assignedTo = body.assignedTo === null ? null : new ObjectId(body.assignedTo);
+    }
+    try {
+      if (changes.assignedTo) {
+        const staff = await users.findOne({ _id: changes.assignedTo, role: { $in: ['sotuvchi', 'yiguvchi'] } });
+        if (!staff) return res.status(404).json({ message: 'Mas’ul xodim topilmadi.' });
+      }
+      const session = mongoClient.startSession();
+      let updated;
+      let audit;
+      try {
+        await session.withTransaction(async () => {
+          const customer = await customers.findOne({ mijoz_id: Number(req.params.mijoz_id) }, { session });
+          if (!customer) { const error = new Error('Mijoz topilmadi.'); error.status = 404; throw error; }
+          const before = {};
+          const after = {};
+          for (const [field, value] of Object.entries(changes)) {
+            const oldValue = customer[field] ?? null;
+            const oldPublic = oldValue instanceof ObjectId ? oldValue.toString() : oldValue;
+            const newPublic = value instanceof ObjectId ? value.toString() : value;
+            if (oldPublic !== newPublic) { before[field] = oldPublic; after[field] = newPublic; }
+          }
+          if (!Object.keys(after).length) { updated = customer; return; }
+          const changed = Object.fromEntries(Object.keys(after).map((field) => [field, changes[field]]));
+          const changedAt = new Date(now());
+          updated = await customers.findOneAndUpdate({ _id: customer._id },
+            { $set: { ...changed, updatedAt: changedAt, updatedBy: res.locals.currentUser._id } },
+            { returnDocument: 'after', session });
+          audit = auditEntry({ action: 'customer.updated', customer: updated, actor: res.locals.currentUser,
+            createdAt: changedAt, before, after });
+          const result = await auditLogs.insertOne(audit, { session });
+          audit._id = result.insertedId;
+        });
+      } finally { await session.endSession(); }
+      return res.json({ customer: publicCustomer((await withPayments([updated]))[0]), audit: audit ? publicAudit(audit) : null });
+    } catch (error) {
+      if (error.status) return res.status(error.status).json({ message: error.message });
+      logger.error('Mijozni yangilashda xatolik:', error);
+      return res.status(500).json({ message: 'Serverda xatolik yuz berdi.' });
+    }
+  });
+
+  app.patch('/customers/:mijoz_id/terms', authenticate, async (req, res) => {
+    if (res.locals.currentUser.role !== 'super_admin') return res.status(403).json({ message: 'Bu amal uchun ruxsat yo‘q.' });
+    if (!validCustomerNumber(req.params.mijoz_id)) return res.status(400).json({ message: 'mijoz_id noto‘g‘ri.' });
+    const body = req.body;
+    if (!body || typeof body !== 'object' || Array.isArray(body) ||
+        Object.keys(body).some((key) => !['totalPrice', 'termMonths', 'reason'].includes(key)) ||
+        !('totalPrice' in body || 'termMonths' in body) ||
+        typeof body.reason !== 'string' || !body.reason.trim() || body.reason.trim().length > 500 ||
+        ('totalPrice' in body && (!Number.isSafeInteger(body.totalPrice) || body.totalPrice <= 0)) ||
+        ('termMonths' in body && (!Number.isInteger(body.termMonths) || body.termMonths < 1 || body.termMonths > 120))) {
+      return res.status(400).json({ message: 'Narx, muddat va 1–500 belgili sababni to‘g‘ri kiriting.' });
+    }
+    const session = mongoClient.startSession();
+    let updated;
+    let audit;
+    try {
+      await session.withTransaction(async () => {
+        const customer = await customers.findOne({ mijoz_id: Number(req.params.mijoz_id) }, { session });
+        if (!customer) { const error = new Error('Mijoz topilmadi.'); error.status = 404; throw error; }
+        const totalPrice = body.totalPrice ?? customer.totalPrice;
+        const termMonths = body.termMonths ?? customer.termMonths;
+        if (totalPrice < customer.totalPaid || !Number.isSafeInteger(totalPrice - customer.totalPaid)) {
+          const error = new Error('Yangi narx to‘langan summadan kam bo‘lmasligi kerak.'); error.status = 409; throw error;
+        }
+        if (body.totalPrice !== undefined && customer.productId) {
+          const product = await products.findOne({ _id: customer.productId }, { session });
+          if (product?.minSellingPrice != null && totalPrice < product.minSellingPrice) {
+            const error = new Error('Yangi narx mahsulotning eng past sotilish narxidan kam.'); error.status = 409; throw error;
+          }
+        }
+        if (totalPrice === customer.totalPrice && termMonths === customer.termMonths) { updated = customer; return; }
+        const changedAt = new Date(now());
+        updated = await customers.findOneAndUpdate({ _id: customer._id },
+          { $set: { totalPrice, termMonths, remainingBalance: totalPrice - customer.totalPaid,
+            updatedAt: changedAt, updatedBy: res.locals.currentUser._id } },
+          { returnDocument: 'after', session });
+        audit = auditEntry({ action: 'customer.terms_updated', customer: updated, actor: res.locals.currentUser,
+          createdAt: changedAt, reason: body.reason.trim(),
+          before: { totalPrice: customer.totalPrice, termMonths: customer.termMonths, remainingBalance: customer.remainingBalance },
+          after: { totalPrice: updated.totalPrice, termMonths: updated.termMonths, remainingBalance: updated.remainingBalance } });
+        const result = await auditLogs.insertOne(audit, { session });
+        audit._id = result.insertedId;
+      });
+      return res.json({ customer: publicCustomer((await withPayments([updated]))[0]), audit: audit ? publicAudit(audit) : null });
+    } catch (error) {
+      if (error.status) return res.status(error.status).json({ message: error.message });
+      logger.error('Mijoz shartlarini yangilashda xatolik:', error);
+      return res.status(500).json({ message: 'Serverda xatolik yuz berdi.' });
+    } finally { await session.endSession(); }
   });
 
   app.post('/customers/:mijoz_id/payments', authenticate, async (req, res) => {

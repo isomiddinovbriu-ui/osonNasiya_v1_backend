@@ -20,6 +20,7 @@ async function start() {
     const refreshSessions = client.db().collection('refresh_sessions');
     const regions = client.db().collection('regions');
     const customers = client.db().collection('customers');
+    const contacts = client.db().collection('contact_events');
     const counters = client.db().collection('counters');
     const productCategories = client.db().collection('product_categories');
     const products = client.db().collection('products');
@@ -36,6 +37,11 @@ async function start() {
     await refreshSessions.createIndex({ userId: 1, revokedAt: 1 });
     await regions.createIndex({ nameKey: 1 }, { unique: true });
     await customers.createIndex({ regionId: 1, createdAt: -1 });
+    await customers.createIndex({ assignedTo: 1, createdAt: -1 });
+    await customers.createIndex({ assignedTo: 1, remainingBalance: 1, mijoz_id: 1 });
+    await contacts.createIndex({ customerId: 1, contactedAt: -1, _id: -1 });
+    await contacts.createIndex({ contactedAt: -1, _id: -1 });
+    await contacts.createIndex({ promisedDate: 1, customerId: 1 });
     await customers.createIndex({ productId: 1 });
     await customers.createIndex({ createdAt: 1 });
     await customers.createIndex({ remainingBalance: 1 });
@@ -59,6 +65,7 @@ async function start() {
       refreshSessions,
       regions,
       customers,
+      contacts,
       payments,
       paymentRequests,
       auditLogs,

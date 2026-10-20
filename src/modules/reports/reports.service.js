@@ -26,16 +26,20 @@ function dateRange(query, now) {
 }
 
 function dueMonths(createdDate, asOfDate, termMonths) {
-  const [year, month, day] = createdDate.split('-').map(Number);
+  const [year, month] = createdDate.split('-').map(Number);
   const [asYear, asMonth] = asOfDate.split('-').map(Number);
   const months = Math.min(termMonths, (asYear - year) * 12 + asMonth - month);
   if (months <= 0) return 0;
-  const index = year * 12 + month - 1 + months;
+  return installmentDueDate(createdDate, months) <= asOfDate ? months : months - 1;
+}
+
+function installmentDueDate(createdDate, installment) {
+  const [year, month, day] = createdDate.split('-').map(Number);
+  const index = year * 12 + month - 1 + installment;
   const dueYear = Math.floor(index / 12);
   const dueMonth = index % 12 + 1;
   const lastDay = new Date(Date.UTC(dueYear, dueMonth, 0)).getUTCDate();
-  const dueDate = `${dueYear}-${String(dueMonth).padStart(2, '0')}-${String(Math.min(day, lastDay)).padStart(2, '0')}`;
-  return dueDate <= asOfDate ? months : months - 1;
+  return `${dueYear}-${String(dueMonth).padStart(2, '0')}-${String(Math.min(day, lastDay)).padStart(2, '0')}`;
 }
 
 function overdueAmount(customer, asOfDate) {
@@ -72,6 +76,26 @@ function monthlyExpected(customer, month) {
   return { amount: throughMonth - throughPrevious, throughMonth };
 }
 
+function collectionWorkItem(customer, asOfDate) {
+  const overdue = overdueAmount(customer, asOfDate);
+  if (overdue === null || customer.remainingBalance <= 0) return null;
+  const financed = customer.totalPrice - customer.downPayment;
+  const installmentPaid = customer.totalPaid - customer.downPayment;
+  if (financed <= 0 || installmentPaid >= financed) return null;
+  const createdDate = localDate(customer.createdAt);
+  let dueDate = null;
+  for (let month = 1; month <= customer.termMonths; month++) {
+    const cumulative = Number(BigInt(financed) * BigInt(month) / BigInt(customer.termMonths));
+    if (cumulative > installmentPaid) {
+      dueDate = installmentDueDate(createdDate, month);
+      break;
+    }
+  }
+  if (!dueDate || dueDate > asOfDate) return null;
+  const daysOverdue = Math.round((Date.parse(`${asOfDate}T00:00:00Z`) - Date.parse(`${dueDate}T00:00:00Z`)) / 86400000);
+  return { dueDate, daysOverdue, dueAmount: overdue, noInstallmentPaid: installmentPaid === 0 };
+}
+
 function csvCell(value) {
   const string = String(value ?? '');
   const safe = /^\s*[=+@-]/.test(string) || /^[\t\r\n]/.test(string) ? `'${string}` : string;
@@ -83,4 +107,4 @@ function csv(columns, rows) {
     ...rows.map((row) => columns.map(([, key]) => csvCell(row[key])).join(','))].join('\r\n')}\r\n`;
 }
 
-module.exports = { localDate, dateRange, overdueAmount, monthlyExpected, csv };
+module.exports = { localDate, dateRange, overdueAmount, monthlyExpected, installmentDueDate, collectionWorkItem, csv };

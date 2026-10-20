@@ -12,6 +12,8 @@
     { "name": "Users", "description": "Super-admin xodimlarni boshqarishi, jumladan product_creator" },
     { "name": "Regions", "description": "Hududlar" },
     { "name": "Customers", "description": "Nasiya oluvchi mijozlar" },
+    { "name": "Contacts", "description": "Aloqa tarixi, keyingi aloqalar va to'lov va'dalari" },
+    { "name": "Collections", "description": "Yig'uvchilarning kundalik ish ro'yxati" },
     { "name": "Payments", "description": "Mijoz to'lovlari" },
     { "name": "Reports", "description": "Tushum, savdo, qarz va CSV eksport; faqat super_admin" },
     { "name": "Catalog", "description": "Mahsulot guruhlari, bo'limlari va mahsulotlar" }
@@ -283,6 +285,7 @@
           { "name": "sectionId", "in": "query", "schema": { "type": "string" } },
           { "name": "productId", "in": "query", "schema": { "type": "string" } },
           { "name": "createdBy", "in": "query", "schema": { "type": "string" } },
+          { "name": "assignedTo", "in": "query", "description": "Mas'ul xodim IDsi", "schema": { "type": "string" } },
           { "name": "paymentId", "in": "query", "schema": { "type": "string" } },
           { "name": "receivedBy", "in": "query", "schema": { "type": "string" } },
           { "name": "name", "in": "query", "schema": { "type": "string", "maxLength": 100 } },
@@ -389,6 +392,101 @@
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "404": { "$ref": "#/components/responses/CustomerNotFound" }
         }
+      },
+      "patch": {
+        "tags": ["Customers"],
+        "summary": "Mijozning aloqa va joylashuv ma'lumotlarini tuzatish",
+        "description": "name, phoneNumber, addPhoneNumber, address, lat va long ni sotuvchi, yig'uvchi yoki super_admin yangilaydi. lat va long birga yuboriladi. assignedTo ni faqat super_admin mavjud sotuvchi yoki yig'uvchiga o'rnatadi (null bilan olib tashlaydi). Haqiqiy o'zgarishlar auditda oldingi va yangi qiymatlar bilan saqlanadi; o'zgarish bo'lmasa audit=null.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "mijoz_id", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateCustomerRequest" } } } },
+        "responses": {
+          "200": { "description": "Mijoz yangilandi", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateCustomerResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/CustomerNotFound" }
+        }
+      }
+    },
+    "/customers/{mijoz_id}/terms": {
+      "patch": {
+        "tags": ["Customers"],
+        "summary": "Savdo narxi yoki muddatini sabab bilan tuzatish (faqat super_admin)",
+        "description": "Narx to'langan jami summadan va mahsulotning minSellingPrice qiymatidan kam bo'lmasligi kerak. Narx o'zgarsa remainingBalance yangi narx minus totalPaid bo'ladi. Narx va muddatning oldingi va yangi qiymatlari auditga yoziladi; o'zgarish bo'lmasa audit=null.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "mijoz_id", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateCustomerTermsRequest" } } } },
+        "responses": {
+          "200": { "description": "Savdo shartlari yangilandi", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateCustomerResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/CustomerNotFound" },
+          "409": { "description": "Yangi narx to'langan summadan yoki mahsulot eng past narxidan kam" }
+        }
+      }
+    },
+    "/customers/{mijoz_id}/contacts": {
+      "post": {
+        "tags": ["Contacts"], "summary": "Mijoz bilan aloqa qaydini yaratish",
+        "description": "Aloqa vaqti server tomonidan yoziladi. outcome=reached yoki no_answer. Va'da bo'lsa promisedDate va promisedAmount birga yuboriladi; summa qolgan qarzdan katta bo'lmaydi va bir vaqtda faqat bitta pending va'da bo'ladi.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "mijoz_id", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateContactRequest" } } } },
+        "responses": {
+          "201": { "description": "Aloqa qaydi yaratildi", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ContactResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/CustomerNotFound" },
+          "409": { "description": "Va'da summasi qarzdan katta yoki hali pending va'da bor" }
+        }
+      },
+      "get": {
+        "tags": ["Contacts"], "summary": "Mijozning aloqa va va'da tarixi",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "mijoz_id", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1, "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } }
+        ],
+        "responses": {
+          "200": { "description": "Aloqa tarixi", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ContactListResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/CustomerNotFound" }
+        }
+      }
+    },
+    "/contacts/follow-ups": {
+      "get": {
+        "tags": ["Contacts"], "summary": "Bugun yoki ko'rsatilgan kungacha aloqaga chiqish vazifalari",
+        "description": "Har mijozning faqat oxirgi aloqa qaydidagi nextContactDate hisobga olinadi. Keyingi aloqa qaydi eski vazifani yopadi.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "through", "in": "query", "schema": { "type": "string", "format": "date", "description": "YYYY-MM-DD; berilmasa Toshkentdagi bugungi kun" } },
+          { "name": "assignedTo", "in": "query", "schema": { "type": "string", "description": "Mas'ul xodim IDsi" } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1, "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } }
+        ],
+        "responses": {
+          "200": { "description": "Aloqa vazifalari", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ContactTaskListResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/contacts/broken-promises": {
+      "get": {
+        "tags": ["Contacts"], "summary": "Muddati o'tgan bajarilmagan va'dalar",
+        "description": "Va'dadan keyin va'da kuni oxirigacha qabul qilingan, bekor qilinmagan installment to'lovlari promisedAmount ga yetmagan bo'lsa broken. Keyinroq to'langan pul eski va'dani bajarilgan qilmaydi.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "assignedTo", "in": "query", "schema": { "type": "string", "description": "Mas'ul xodim IDsi" } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1, "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } }
+        ],
+        "responses": {
+          "200": { "description": "Bajarilmagan va'dalar", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ContactTaskListResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "$ref": "#/components/responses/Forbidden" }
+        }
       }
     },
     "/payments/options": {
@@ -455,7 +553,7 @@
       "get": {
         "tags": ["Payments"],
         "summary": "Mijoz va to'lovlar audit tarixi (faqat super_admin)",
-        "description": "Yangi yozuvlar uchun yaratilish va to'lovni bekor qilish voqealari. Oldingi yozuvlar uchun tarix orqaga qarab yaratilmaydi.",
+        "description": "Yangi yozuvlar uchun yaratilish, mijoz ma'lumotlari va savdo shartlarini tuzatish hamda to'lovni bekor qilish voqealari. Oldingi yozuvlar uchun tarix orqaga qarab yaratilmaydi.",
         "security": [{ "bearerAuth": [] }],
         "parameters": [
           { "name": "mijoz_id", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
@@ -468,6 +566,24 @@
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "403": { "$ref": "#/components/responses/Forbidden" },
           "404": { "$ref": "#/components/responses/CustomerNotFound" }
+        }
+      }
+    },
+    "/collections/worklist": {
+      "get": {
+        "tags": ["Collections"], "summary": "Muddati kelgan va kechikkan mijozlar ish ro'yxati",
+        "description": "Yig'uvchi faqat o'ziga assignedTo orqali biriktirilgan mijozlarni ko'radi; super_admin barchasini ko'radi yoki assignedTo bilan filtrlaydi. Eng eski yopilmagan oylik ulush sanasi bo'yicha today_due, overdue_1_7, overdue_8_30 va overdue_31_plus aniqlanadi. never_paid — muddati kelgan, lekin boshlang'ich to'lovdan tashqari hech narsa to'lamagan mijozlar; bu ro'yxat boshqa bucketlar bilan kesishishi mumkin. Shartnoma grafigi saqlanmagani uchun muddat totalPrice, downPayment, termMonths va createdAt dan hisoblanadi; penya yo'q.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "bucket", "in": "query", "required": true, "schema": { "type": "string", "enum": ["today_due", "overdue_1_7", "overdue_8_30", "overdue_31_plus", "never_paid"] } },
+          { "name": "assignedTo", "in": "query", "schema": { "type": "string", "description": "Super_admin uchun ixtiyoriy; yig'uvchi faqat o'z ID sini yuborishi mumkin" } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1, "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } }
+        ],
+        "responses": {
+          "200": { "description": "Sahifalangan ish ro'yxati", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CollectionWorklist" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
         }
       }
     },
@@ -531,8 +647,8 @@
     },
     "/reports/monthly-underpaid": {
       "get": {
-        "tags": ["Reports"], "summary": "Oylik to'lovdan kam to'lagan mijozlar",
-        "description": "Belgilangan oy uchun qisman to'lov 0 dan katta, hisoblangan oylik summadan kam va shu oygacha jami to'lov yetarli bo'lmagan mijozlar. forMonth berilgan to'lov shu oyga, eski forMonth siz to'lov qabul qilingan Toshkent oyiga yoziladi. Bekor qilingan to'lovlar hisobga olinmaydi. Hech qanday penya qo'shilmaydi. CSV faqat so'ralgan sahifani eksport qiladi. Faqat super_admin.",
+        "tags": ["Reports"], "summary": "Oylik to'lovni qilmagan yoki kam to'lagan mijozlar",
+        "description": "Belgilangan oy uchun 0 so'm to'laganlar unpaid, 0 dan ko'p lekin hisoblangan oylik summadan kam to'laganlar underpaid bo'ladi; shu oygacha jami oldindan to'langan summa yetarli bo'lsa kiritilmaydi. forMonth berilgan to'lov shu oyga, eski forMonth siz to'lov qabul qilingan Toshkent oyiga yoziladi. Bekor qilingan to'lovlar hisobga olinmaydi. Hech qanday penya qo'shilmaydi. CSV faqat so'ralgan sahifani eksport qiladi. Faqat super_admin.",
         "security": [{ "bearerAuth": [] }],
         "parameters": [
           { "name": "month", "in": "query", "schema": { "type": "string", "pattern": "^[1-9][0-9]{3}-(0[1-9]|1[0-2])$", "description": "YYYY-MM; berilmasa Toshkentdagi joriy oy" } },
@@ -541,7 +657,7 @@
           { "name": "format", "in": "query", "schema": { "type": "string", "enum": ["json", "csv"], "default": "json" } }
         ],
         "responses": {
-          "200": { "description": "Qisman to'langan oylar yoki CSV sahifa", "content": {
+          "200": { "description": "To'lanmagan yoki qisman to'langan oylar; JSON yoki CSV sahifa", "content": {
             "application/json": { "schema": { "$ref": "#/components/schemas/MonthlyUnderpaidReport" } },
             "text/csv": { "schema": { "type": "string" } }
           } },
@@ -730,6 +846,7 @@
           "name": { "type": "string", "maxLength": 100, "example": "Ali Valiyev" },
           "phoneNumber": { "type": "string", "example": "+998901234567" },
           "addPhoneNumber": { "type": "string", "nullable": true, "description": "Ixtiyoriy qo'shimcha telefon raqami", "example": "+998901112233" },
+          "address": { "type": "string", "nullable": true, "maxLength": 500, "description": "Ixtiyoriy manzil" },
           "groupId": { "type": "string", "description": "Asosiy guruh IDsi" },
           "sectionId": { "type": "string", "description": "Shu guruhdagi bo'lim IDsi" },
           "productId": { "type": "string", "description": "Shu bo'limdagi mahsulot IDsi" },
@@ -769,12 +886,14 @@
       },
       "Customer": {
         "type": "object",
-        "required": ["mijoz_id", "name", "phoneNumber", "addPhoneNumber", "productName", "groupId", "sectionId", "productId", "regionId", "lat", "long", "totalPrice", "downPayment", "termMonths", "totalPaid", "remainingBalance", "payments", "createdBy", "createdByRole", "createdAt"],
+        "required": ["mijoz_id", "name", "phoneNumber", "addPhoneNumber", "address", "assignedTo", "productName", "groupId", "sectionId", "productId", "regionId", "lat", "long", "totalPrice", "downPayment", "termMonths", "totalPaid", "remainingBalance", "payments", "createdBy", "createdByRole", "createdAt"],
         "properties": {
           "mijoz_id": { "type": "integer", "minimum": 1, "description": "Counter kolleksiyasi orqali avtomatik beriladigan ketma-ket raqam" },
           "name": { "type": "string" },
           "phoneNumber": { "type": "string" },
           "addPhoneNumber": { "type": "string", "nullable": true, "description": "Qo'shimcha raqam berilmagan yoki eski yozuvlarda null" },
+          "address": { "type": "string", "nullable": true, "description": "Manzil berilmagan yoki eski yozuvlarda null" },
+          "assignedTo": { "type": "string", "nullable": true, "description": "Mas'ul sotuvchi yoki yig'uvchi IDsi; biriktirilmagan bo'lsa null" },
           "productName": { "type": "string" },
           "groupId": { "type": "string", "nullable": true, "description": "Eski yozuvlarda null bo'lishi mumkin" },
           "sectionId": { "type": "string", "nullable": true, "description": "Eski yozuvlarda null bo'lishi mumkin" },
@@ -799,6 +918,31 @@
         "required": ["customer"],
         "properties": { "customer": { "$ref": "#/components/schemas/Customer" } }
       },
+      "UpdateCustomerRequest": {
+        "type": "object", "additionalProperties": false, "minProperties": 1,
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+          "phoneNumber": { "type": "string" },
+          "addPhoneNumber": { "type": "string", "nullable": true },
+          "address": { "type": "string", "nullable": true, "maxLength": 500 },
+          "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+          "long": { "type": "number", "minimum": -180, "maximum": 180 },
+          "assignedTo": { "type": "string", "nullable": true, "description": "Faqat super_admin" }
+        }
+      },
+      "UpdateCustomerTermsRequest": {
+        "type": "object", "additionalProperties": false, "required": ["reason"],
+        "properties": {
+          "totalPrice": { "type": "integer", "minimum": 1 },
+          "termMonths": { "type": "integer", "minimum": 1, "maximum": 120 },
+          "reason": { "type": "string", "minLength": 1, "maxLength": 500 }
+        },
+        "description": "totalPrice yoki termMonths dan kamida biri yuboriladi"
+      },
+      "UpdateCustomerResponse": {
+        "type": "object", "required": ["customer", "audit"],
+        "properties": { "customer": { "$ref": "#/components/schemas/Customer" }, "audit": { "type": "object", "nullable": true, "allOf": [{ "$ref": "#/components/schemas/AuditEntry" }] } }
+      },
       "CustomerListResponse": {
         "type": "object",
         "required": ["customers", "total", "page", "limit"],
@@ -817,6 +961,39 @@
           "total": { "type": "integer" }
         }
       },
+      "CreateContactRequest": {
+        "type": "object", "additionalProperties": false, "required": ["outcome"],
+        "properties": {
+          "outcome": { "type": "string", "enum": ["reached", "no_answer"] },
+          "note": { "type": "string", "maxLength": 1000 },
+          "nextContactDate": { "type": "string", "format": "date", "nullable": true },
+          "promisedDate": { "type": "string", "format": "date", "description": "promisedAmount bilan birga, outcome=reached bo'lsa" },
+          "promisedAmount": { "type": "integer", "minimum": 1, "description": "So'mda; promisedDate bilan birga" }
+        }
+      },
+      "Contact": {
+        "type": "object", "required": ["id", "mijoz_id", "outcome", "note", "contactedAt", "contactedBy", "nextContactDate", "promisedDate", "promisedAmount", "promiseStatus", "paidTowardPromise"],
+        "properties": {
+          "id": { "type": "string" }, "mijoz_id": { "type": "integer" },
+          "outcome": { "type": "string", "enum": ["reached", "no_answer"] },
+          "note": { "type": "string" }, "contactedAt": { "type": "string", "format": "date-time" },
+          "contactedBy": { "type": "string" }, "nextContactDate": { "type": "string", "format": "date", "nullable": true },
+          "promisedDate": { "type": "string", "format": "date", "nullable": true },
+          "promisedAmount": { "type": "integer", "nullable": true },
+          "promiseStatus": { "type": "string", "enum": ["pending", "fulfilled", "broken"], "nullable": true },
+          "paidTowardPromise": { "type": "integer", "nullable": true, "description": "Va'da qaydidan keyin muddati tugaguncha qabul qilingan faol to'lovlar" }
+        }
+      },
+      "ContactResponse": { "type": "object", "required": ["contact"], "properties": { "contact": { "$ref": "#/components/schemas/Contact" } } },
+      "ContactListResponse": { "type": "object", "required": ["contacts", "total", "page", "limit"], "properties": {
+        "contacts": { "type": "array", "items": { "$ref": "#/components/schemas/Contact" } },
+        "total": { "type": "integer" }, "page": { "type": "integer" }, "limit": { "type": "integer" }
+      } },
+      "ContactTaskListResponse": { "type": "object", "required": ["contacts", "total", "page", "limit"], "properties": {
+        "contacts": { "type": "array", "items": { "allOf": [{ "$ref": "#/components/schemas/Contact" }, { "type": "object", "properties": { "customer": { "type": "object", "nullable": true, "properties": { "name": { "type": "string" }, "phoneNumber": { "type": "string" }, "address": { "type": "string", "nullable": true }, "assignedTo": { "type": "string", "nullable": true } } } } }] } },
+        "total": { "type": "integer" }, "page": { "type": "integer" }, "limit": { "type": "integer" },
+        "through": { "type": "string", "format": "date", "description": "Faqat follow-ups javobida" }
+      } },
       "AddPaymentRequest": {
         "type": "object",
         "required": ["amount", "method"],
@@ -840,7 +1017,7 @@
       },
       "VoidPaymentRequest": { "type": "object", "additionalProperties": false, "required": ["reason"], "properties": { "reason": { "type": "string", "minLength": 1, "maxLength": 500 } } },
       "AuditEntry": { "type": "object", "required": ["id", "action", "entityType", "entityId", "mijoz_id", "actorId", "actorRole", "createdAt", "before", "after"], "properties": {
-        "id": { "type": "string" }, "action": { "type": "string", "enum": ["customer.created", "payment.created", "payment.voided"] },
+        "id": { "type": "string" }, "action": { "type": "string", "enum": ["customer.created", "customer.updated", "customer.terms_updated", "payment.created", "payment.voided"] },
         "entityType": { "type": "string", "enum": ["customer", "payment"] }, "entityId": { "type": "string" },
         "mijoz_id": { "type": "integer" }, "actorId": { "type": "string" }, "actorRole": { "type": "string" },
         "actorName": { "type": "string", "nullable": true }, "createdAt": { "type": "string", "format": "date-time" },
@@ -887,6 +1064,22 @@
         "overdueCustomers": { "type": "integer" }, "overdueDebt": { "type": "integer", "description": "So'mda" },
         "unclassifiedCustomers": { "type": "integer" }, "unclassifiedDebt": { "type": "integer", "description": "So'mda; kechikish hisoblanmagan eski/noto'g'ri yozuvlar" }
       } },
+      "CollectionWorklist": { "type": "object", "required": ["asOfDate", "bucket", "customers", "total", "page", "limit"], "properties": {
+        "asOfDate": { "type": "string", "format": "date" },
+        "bucket": { "type": "string", "enum": ["today_due", "overdue_1_7", "overdue_8_30", "overdue_31_plus", "never_paid"] },
+        "customers": { "type": "array", "items": { "$ref": "#/components/schemas/CollectionWorkItem" } },
+        "total": { "type": "integer" }, "page": { "type": "integer" }, "limit": { "type": "integer" }
+      } },
+      "CollectionWorkItem": { "type": "object", "required": ["mijoz_id", "name", "phoneNumber", "addPhoneNumber", "address", "regionId", "assignedTo", "createdAt", "totalPrice", "totalPaid", "remainingBalance", "termMonths", "dueDate", "daysOverdue", "dueAmount", "noInstallmentPaid"], "properties": {
+        "mijoz_id": { "type": "integer" }, "name": { "type": "string" }, "phoneNumber": { "type": "string" },
+        "addPhoneNumber": { "type": "string", "nullable": true }, "address": { "type": "string", "nullable": true },
+        "regionId": { "type": "string", "nullable": true }, "assignedTo": { "type": "string", "nullable": true },
+        "createdAt": { "type": "string", "format": "date-time" }, "totalPrice": { "type": "integer" },
+        "totalPaid": { "type": "integer" }, "remainingBalance": { "type": "integer" }, "termMonths": { "type": "integer" },
+        "dueDate": { "type": "string", "format": "date", "description": "Eng eski yopilmagan oylik ulush muddati" },
+        "daysOverdue": { "type": "integer", "minimum": 0 }, "dueAmount": { "type": "integer", "description": "Bugungacha hisoblangan to'lanmagan ulush, penya emas" },
+        "noInstallmentPaid": { "type": "boolean", "description": "Boshlang'ich to'lovdan keyingi to'lovlar 0 so'm" }
+      } },
       "MonthlyUnderpaidReport": { "type": "object", "required": ["month", "rows", "total", "page", "limit"], "properties": {
         "month": { "type": "string", "description": "YYYY-MM" },
         "rows": { "type": "array", "items": { "$ref": "#/components/schemas/MonthlyUnderpaidRow" } },
@@ -897,7 +1090,7 @@
         "regionId": { "type": "string", "nullable": true }, "monthlyAmount": { "type": "integer", "description": "Hisoblangan oylik summa, so'mda" },
         "paidAmount": { "type": "integer", "description": "Oyga biriktirilgan to'lovlar, so'mda" },
         "shortfall": { "type": "integer", "description": "monthlyAmount - paidAmount; penya emas" },
-        "status": { "type": "string", "enum": ["underpaid"] },
+        "status": { "type": "string", "enum": ["unpaid", "underpaid"] },
         "message": { "type": "string", "example": "Oylik to'lovdan kam to'landi" }
       } },
       "Error": {
