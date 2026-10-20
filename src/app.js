@@ -6,6 +6,7 @@ const { registerRegionRoutes } = require('./modules/regions/regions.api');
 const { registerCustomerRoutes } = require('./modules/customers/customers.api');
 const { registerCatalogRoutes } = require('./modules/catalog/catalog.api');
 const { registerPaymentRoutes } = require('./modules/payments/payments.api');
+const { registerReportRoutes } = require('./modules/reports/reports.api');
 const openapi = require('./openapi.json');
 
 const docsHtml = `<!doctype html>
@@ -59,6 +60,7 @@ function createApp({ users, loginRequests, refreshSessions, regions, customers, 
   registerRegionRoutes(app, { regions, customers, authenticate, logger, now });
   registerCustomerRoutes(app, { authenticate, customers, payments, paymentApps, paymentRequests, auditLogs, mongoClient, counters, regions, productCategories, products, jwtSecret, logger, now });
   registerPaymentRoutes(app, { authenticate, paymentApps, logger });
+  registerReportRoutes(app, { authenticate, customers, payments, regions, users, logger, now });
   if (productCategories && products && imageStorage) {
     registerCatalogRoutes(app, { authenticate, productCategories, products, customers, counters, imageStorage, logger, now });
   }

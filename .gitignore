@@ -8,5 +8,8 @@ test/api.test.js
 !test/
 test/*
 !test/customers.test.js
+!test/reports.test.cjs
+!test/demo-seed.test.cjs
 .env.example
 package-lock.json
+README.md

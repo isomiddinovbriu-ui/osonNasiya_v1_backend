@@ -13,6 +13,7 @@
     { "name": "Regions", "description": "Hududlar" },
     { "name": "Customers", "description": "Nasiya oluvchi mijozlar" },
     { "name": "Payments", "description": "Mijoz to'lovlari" },
+    { "name": "Reports", "description": "Tushum, savdo, qarz va CSV eksport; faqat super_admin" },
     { "name": "Catalog", "description": "Mahsulot guruhlari, bo'limlari va mahsulotlar" }
   ],
   "paths": {
@@ -469,6 +470,85 @@
           "404": { "$ref": "#/components/responses/CustomerNotFound" }
         }
       }
+    },
+    "/reports/revenue": {
+      "get": {
+        "tags": ["Reports"], "summary": "Kunlik yoki oylik tushum",
+        "description": "paidAt Toshkent vaqti bo'yicha guruhlanadi. Bekor qilingan to'lovlar hisobga olinmaydi. Sana oralig'i ikki tomondan ham kiritiladi; from/to berilmasa bugungi kun olinadi. Faqat super_admin.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "from", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "to", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "groupBy", "in": "query", "schema": { "type": "string", "enum": ["day", "month"], "default": "day" } },
+          { "name": "format", "in": "query", "schema": { "type": "string", "enum": ["json", "csv"], "default": "json" } }
+        ],
+        "responses": {
+          "200": { "description": "Tushum hisobot yoki CSV fayl", "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/RevenueReport" } },
+            "text/csv": { "schema": { "type": "string" } }
+          } },
+          "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/reports/sales": {
+      "get": {
+        "tags": ["Reports"], "summary": "Hudud yoki xodim bo'yicha savdo",
+        "description": "Mijoz createdAt sanasi Toshkent vaqti bo'yicha tanlanadi. salesAmount — yaratilgan savdolarning totalPrice yig'indisi; keyingi to'lovlarga bog'liq emas. Faqat super_admin.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "from", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "to", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "groupBy", "in": "query", "schema": { "type": "string", "enum": ["region", "staff"], "default": "region" } },
+          { "name": "format", "in": "query", "schema": { "type": "string", "enum": ["json", "csv"], "default": "json" } }
+        ],
+        "responses": {
+          "200": { "description": "Savdo hisoboti yoki CSV fayl", "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/SalesReport" } },
+            "text/csv": { "schema": { "type": "string" } }
+          } },
+          "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/reports/debt": {
+      "get": {
+        "tags": ["Reports"], "summary": "Joriy va kechikkan qarz",
+        "description": "Joriy remainingBalance yig'indisi va taxminiy kechikkan qism. Moliyalashtirilgan summa (totalPrice - downPayment) termMonths oyga teng taqsimlanadi; birinchi ulush savdodan 1 oy keyin to'lanishi kerak deb olinadi. Barcha keyingi to'lovlar eng eski majburiyatni kamaytiradi, forMonth bo'yicha ajratilmaydi. Shartnoma grafigi saqlanmaganligi uchun overdueDebt hisoblangan ko'rsatkichdir. Noto'g'ri/eski ma'lumotlar unclassifiedDebt ga ajratiladi. Faqat joriy holat; tarixiy sana qabul qilinmaydi. Faqat super_admin.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "format", "in": "query", "schema": { "type": "string", "enum": ["json", "csv"], "default": "json" } }],
+        "responses": {
+          "200": { "description": "Qarz hisoboti yoki CSV fayl", "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/DebtReport" } },
+            "text/csv": { "schema": { "type": "string" } }
+          } },
+          "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/reports/monthly-underpaid": {
+      "get": {
+        "tags": ["Reports"], "summary": "Oylik to'lovdan kam to'lagan mijozlar",
+        "description": "Belgilangan oy uchun qisman to'lov 0 dan katta, hisoblangan oylik summadan kam va shu oygacha jami to'lov yetarli bo'lmagan mijozlar. forMonth berilgan to'lov shu oyga, eski forMonth siz to'lov qabul qilingan Toshkent oyiga yoziladi. Bekor qilingan to'lovlar hisobga olinmaydi. Hech qanday penya qo'shilmaydi. CSV faqat so'ralgan sahifani eksport qiladi. Faqat super_admin.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "month", "in": "query", "schema": { "type": "string", "pattern": "^[1-9][0-9]{3}-(0[1-9]|1[0-2])$", "description": "YYYY-MM; berilmasa Toshkentdagi joriy oy" } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1, "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } },
+          { "name": "format", "in": "query", "schema": { "type": "string", "enum": ["json", "csv"], "default": "json" } }
+        ],
+        "responses": {
+          "200": { "description": "Qisman to'langan oylar yoki CSV sahifa", "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/MonthlyUnderpaidReport" } },
+            "text/csv": { "schema": { "type": "string" } }
+          } },
+          "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
     }
   },
   "components": {
@@ -774,6 +854,51 @@
       "VoidPaymentResponse": { "type": "object", "required": ["payment", "customer", "audit"], "properties": {
         "payment": { "$ref": "#/components/schemas/Payment" }, "customer": { "$ref": "#/components/schemas/Customer" },
         "audit": { "$ref": "#/components/schemas/AuditEntry" }
+      } },
+      "RevenueReport": { "type": "object", "required": ["from", "to", "groupBy", "rows", "total"], "properties": {
+        "from": { "type": "string", "format": "date" }, "to": { "type": "string", "format": "date" },
+        "groupBy": { "type": "string", "enum": ["day", "month"] },
+        "rows": { "type": "array", "items": { "$ref": "#/components/schemas/RevenueRow" } },
+        "total": { "$ref": "#/components/schemas/RevenueTotal" }
+      } },
+      "RevenueRow": { "type": "object", "required": ["period", "paymentCount", "amount"], "properties": {
+        "period": { "type": "string", "description": "YYYY-MM-DD yoki YYYY-MM" },
+        "paymentCount": { "type": "integer" }, "amount": { "type": "integer", "description": "So'mda" }
+      } },
+      "RevenueTotal": { "type": "object", "required": ["paymentCount", "amount"], "properties": {
+        "paymentCount": { "type": "integer" }, "amount": { "type": "integer", "description": "So'mda" }
+      } },
+      "SalesReport": { "type": "object", "required": ["from", "to", "groupBy", "rows", "total"], "properties": {
+        "from": { "type": "string", "format": "date" }, "to": { "type": "string", "format": "date" },
+        "groupBy": { "type": "string", "enum": ["region", "staff"] },
+        "rows": { "type": "array", "items": { "$ref": "#/components/schemas/SalesRow" } },
+        "total": { "$ref": "#/components/schemas/SalesTotal" }
+      } },
+      "SalesRow": { "type": "object", "required": ["id", "name", "salesCount", "salesAmount"], "properties": {
+        "id": { "type": "string", "nullable": true }, "name": { "type": "string" },
+        "salesCount": { "type": "integer" }, "salesAmount": { "type": "integer", "description": "So'mda" }
+      } },
+      "SalesTotal": { "type": "object", "required": ["salesCount", "salesAmount"], "properties": {
+        "salesCount": { "type": "integer" }, "salesAmount": { "type": "integer", "description": "So'mda" }
+      } },
+      "DebtReport": { "type": "object", "required": ["asOfDate", "customerCount", "totalDebt", "overdueCustomers", "overdueDebt", "unclassifiedCustomers", "unclassifiedDebt"], "properties": {
+        "asOfDate": { "type": "string", "format": "date", "description": "Toshkent sanasi" },
+        "customerCount": { "type": "integer" }, "totalDebt": { "type": "integer", "description": "So'mda" },
+        "overdueCustomers": { "type": "integer" }, "overdueDebt": { "type": "integer", "description": "So'mda" },
+        "unclassifiedCustomers": { "type": "integer" }, "unclassifiedDebt": { "type": "integer", "description": "So'mda; kechikish hisoblanmagan eski/noto'g'ri yozuvlar" }
+      } },
+      "MonthlyUnderpaidReport": { "type": "object", "required": ["month", "rows", "total", "page", "limit"], "properties": {
+        "month": { "type": "string", "description": "YYYY-MM" },
+        "rows": { "type": "array", "items": { "$ref": "#/components/schemas/MonthlyUnderpaidRow" } },
+        "total": { "type": "integer" }, "page": { "type": "integer" }, "limit": { "type": "integer" }
+      } },
+      "MonthlyUnderpaidRow": { "type": "object", "required": ["mijoz_id", "name", "regionId", "monthlyAmount", "paidAmount", "shortfall", "status", "message"], "properties": {
+        "mijoz_id": { "type": "integer" }, "name": { "type": "string" },
+        "regionId": { "type": "string", "nullable": true }, "monthlyAmount": { "type": "integer", "description": "Hisoblangan oylik summa, so'mda" },
+        "paidAmount": { "type": "integer", "description": "Oyga biriktirilgan to'lovlar, so'mda" },
+        "shortfall": { "type": "integer", "description": "monthlyAmount - paidAmount; penya emas" },
+        "status": { "type": "string", "enum": ["underpaid"] },
+        "message": { "type": "string", "example": "Oylik to'lovdan kam to'landi" }
       } },
       "Error": {
         "type": "object",

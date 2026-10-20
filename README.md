@@ -44,6 +44,12 @@ Demo katalogni yaratish uchun bazada `test12` loginli `product_creator` bo‘lis
 
 20 ta namunaviy savdo hududini qo‘shish uchun `npm run seed:regions` buyrug‘ini bajaring. Seed mavjud `super_admin` ID sini `createdBy` ga yozadi va qayta bajarilganda hududlarni dublikat qilmaydi.
 
+## To‘liq demo ma’lumotlar
+
+`.env` sozlangan va MongoDB ishlayotgan bo‘lsa, `npm run seed:demo -- --apply` buyrug‘i demo ma’lumotlarni yaratadi. `--count=80` bilan mijozlar sonini 1–500 oralig‘ida tanlash mumkin; standart 40 ta. Seed lokal standalone MongoDBda ham ishlaydi; API orqali yangi to‘lov yozish uchun esa replica set yoki Atlas kerak. Seed avval super adminni (yo‘q bo‘lsa `.env` orqali), uch demo xodimni (`test12`, `demo_sotuvchi`, `demo_yiguvchi`), 20 hududni, 7 guruh/70 bo‘lim/350 mahsulotni va to‘lov ilovalari katalogini tayyorlaydi. Keyin mijozlar, boshlang‘ich va oylik to‘lovlar, audit tarixi, qisman to‘lov, kechikkan qarz hamda sabab bilan bekor qilingan to‘lov namunalarini qo‘shadi. Mijoz telefonlari sun’iy `+998 00 000 ...` formatida; mahsulot rasmlari yaratilmaydi.
+
+Yangi xodimlarning 5 xonali parollari faqat birinchi ishga tushganda terminalda chiqadi; ularni saqlab qo‘ying. Qayta ishga tushirish mavjud demo mijozlar/to‘lovlarni dublikat qilmaydi yoki o‘zgartirmaydi. `--count` oshirilsa faqat yangi raqamdagi demo mijozlar qo‘shiladi. Demo mijozlar `demoSeedKey`, yangi xodimlar va to‘lovlar `demoSeed` bilan belgilanadi; hisobotlar ularni odatiy ma’lumot sifatida hisoblaydi. Ishlab turgan haqiqiy baza o‘rniga alohida sinov bazasida ishlating. Login so‘rovlari, sessiyalar va `payment_requests` operatsion yozuvlari seed qilinmaydi; ular faqat tegishli API so‘rovlari bajarilganda yaratiladi.
+
 Mijozlar ro‘yxati `GET /customers` orqali olinadi (Bearer token kerak). Masalan, `GET /customers?regionId=<id>&name=Ali&hasDebt=true&page=1&limit=20`. `phoneNumber` filtri asosiy va qo‘shimcha telefon raqamlarining ikkalasidan ham qidiradi: `GET /customers?phoneNumber=90123`. Javobda `customers`, `total`, `page`, `limit` qaytadi. Barcha filtrlar, jumladan narx oralig‘i (`totalPriceMin`, `totalPriceMax`), sana (`createdFrom`, `createdTo`) va to‘lov filtrlari Swagger `/docs` sahifasida ko‘rsatilgan.
 
 Yaqin mijozlarni olish uchun `GET /customers/nearby?lat=41.2995&long=69.2401&radiusMeters=1000` yuboring (Bearer token kerak). `radiusMeters` metrda butun son (`1000` = 1 km, `12345` = 12.345 km); javobda `customers` va `total`, har bir mijozda `distanceKm` kilometrda qaytadi. Masofa to‘g‘ri chiziq bo‘yicha hisoblanadi va natijalar eng yaqindan tartiblanadi.
@@ -73,6 +79,17 @@ Yangi mijoz va to'lovlar yaratilganda `audit_logs` collectionga kim, qachon, qay
 Faqat `super_admin` `POST /customers/{mijoz_id}/payments/{paymentId}/void` so'roviga `{"reason":"Kassa qaydida xato"}` yuborib to'lovni bekor qiladi. Sabab 1–500 belgidan iborat bo'lishi kerak. To'lov o'chirilmaydi: `status: "voided"`, `voidedAt`, `voidedBy` va `voidReason` bilan tarixda qoladi. Balansdan ushbu summa ayriladi va qarzga qaytariladi; boshlang'ich to'lov bekor qilinsa `downPayment` ham kamayadi. Bir to'lovni qayta bekor qilish `409` qaytaradi. Eski, bekor qilinmagan to'lovlar javobida `status: "active"` bo'ladi. To'lov bo'yicha mijoz qidirish filtrlari bekor qilingan to'lovlarni hisobga olmaydi.
 
 `GET /customers/{mijoz_id}/audit?page=1&limit=20` faqat `super_admin`ga mijozning audit tarixini yangi yozuvdan boshlab qaytaradi. Har bir yozuvda `action`, `entityType`, `entityId`, `actorId`, `actorRole`, `createdAt`, `reason`, `before` va `after` bor. Barcha endpointlar `/docs` da ham hujjatlashtirilgan.
+
+## Hisobotlar va CSV eksport
+
+Hisobotlarni faqat `super_admin` Bearer token bilan oladi. `from` va `to` sanalari `YYYY-MM-DD` formatida, Toshkent vaqti bo'yicha ikkala cheti ham kiritilgan oralig'ini bildiradi. Berilmasa bugungi kun olinadi. Eng uzun oralig' 3660 kun. `format=csv` qo'shilsa UTF-8 CSV fayl yuklanadi; odatiy javob JSON. CSVda formulaga o'xshash nomlar xavfsiz matn ko'rinishida chiqariladi.
+
+- `GET /reports/revenue?from=2026-10-01&to=2026-10-31&groupBy=day` - tushum va to'lovlar soni kunlar kesimida. `groupBy=month` oylar kesimini beradi. Tushum haqiqiy `paidAt` sanasi bo'yicha olinadi; bekor qilingan to'lovlar hisoblanmaydi. JSONda `rows` va `total` qaytadi.
+- `GET /reports/sales?from=2026-10-01&to=2026-10-31&groupBy=region` - hududlar bo'yicha savdo soni va summasi. `groupBy=staff` sotuvni mijozni yaratgan xodim bo'yicha guruhlaydi. Savdo sanasi mijozning `createdAt` maydoni, summa `totalPrice`; keyingi to'lovlar savdo summasini o'zgartirmaydi.
+- `GET /reports/debt` - joriy umumiy qarz (`totalDebt`), taxminiy kechikkan qarz (`overdueDebt`) va tegishli mijozlar soni. Tarixiy `asOf` qabul qilinmaydi, chunki o'tmishdagi balans suratlari saqlanmagan. Eski yoki nomuvofiq yozuvlar `unclassifiedDebt` va `unclassifiedCustomers`da ko'rsatiladi.
+- `GET /reports/monthly-underpaid?month=2026-10&page=1&limit=20` - shu oy uchun 0 dan ko'p, lekin hisoblangan oylik summadan kam to'lagan mijozlar. Javobda `monthlyAmount`, `paidAmount`, `shortfall`, `status: "underpaid"` va `message: "Oylik to'lovdan kam to'landi"` qaytadi. `forMonth` bo'lsa shu oyga, eski oy belgilanmagan to'lov esa `paidAt` ning Toshkent oyiga hisoblanadi. Bekor qilingan to'lov hisoblanmaydi. `format=csv` faqat so'ralgan sahifani chiqaradi. Hech qanday penya qo'shilmaydi.
+
+Kechikkan qarz hisoblash qoidasi: `totalPrice - downPayment` `termMonths` oyga teng taqsimlanadi; birinchi ulush savdo sanasidan bir oy keyin to'lanishi kerak deb olinadi. Oy oxiridagi savdolar uchun keyingi oyning oxirgi kuni olinadi. To'langan keyingi summalar eng eski majburiyatni kamaytiradi, `forMonth` ajratmasi hisobga olinmaydi. Bu mavjud shartnoma ma'lumotlaridan hisoblangan ko'rsatkich; alohida kelishilgan to'lov jadvali bazada saqlanmaydi. Har bir endpointning CSV shakli uchun shu URLga `&format=csv` (`/reports/debt?format=csv`) qo'shing.
 
 ## Takroriy to'lovdan himoya
 

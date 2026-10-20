@@ -37,6 +37,8 @@ async function start() {
     await regions.createIndex({ nameKey: 1 }, { unique: true });
     await customers.createIndex({ regionId: 1, createdAt: -1 });
     await customers.createIndex({ productId: 1 });
+    await customers.createIndex({ createdAt: 1 });
+    await customers.createIndex({ remainingBalance: 1 });
     await customers.createIndex({ lat: 1 });
     await prepareCustomerIds(customers, counters);
     await payments.createIndex({ customerId: 1, paidAt: 1 });
