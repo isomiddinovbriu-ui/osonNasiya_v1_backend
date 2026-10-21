@@ -90,7 +90,7 @@ function registerCatalogRoutes(app, { authenticate, productCategories: categorie
     if (parentId !== undefined && parentId !== 'null' && !ObjectId.isValid(parentId)) return res.status(400).json({ message: 'parentId noto‘g‘ri.' });
     const filter = parentId === undefined ? {} : { parentId: parentId === 'null' ? null : new ObjectId(parentId) };
     try {
-      const items = await categories.find(filter).sort({ nameKey: 1 }).toArray();
+      const items = await categories.find(filter).sort({ createdAt: -1, _id: -1 }).toArray();
       return res.json({ categories: items.map(publicCategory) });
     } catch (error) { return fail(res, error, 'Kategoriyalarni olishda xatolik:'); }
   });
