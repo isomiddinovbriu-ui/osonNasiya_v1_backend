@@ -88,7 +88,12 @@ function registerCatalogRoutes(app, { authenticate, productCategories: categorie
   app.get('/product-categories', authenticate, async (req, res) => {
     const parentId = req.query.parentId;
     if (parentId !== undefined && parentId !== 'null' && !ObjectId.isValid(parentId)) return res.status(400).json({ message: 'parentId noto‘g‘ri.' });
+    const search = req.query.search;
+    if (search !== undefined && (typeof search !== 'string' || !search.trim() || search.trim().length > 100)) {
+      return res.status(400).json({ message: 'Qidiruv so‘zini kiriting (100 belgigacha).' });
+    }
     const filter = parentId === undefined ? {} : { parentId: parentId === 'null' ? null : new ObjectId(parentId) };
+    if (search !== undefined) filter.name = searchPattern(search.trim());
     try {
       const items = await categories.find(filter).sort({ createdAt: -1, _id: -1 }).toArray();
       return res.json({ categories: items.map(publicCategory) });
