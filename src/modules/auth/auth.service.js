@@ -10,9 +10,9 @@ async function seedSuperAdmin(users, config) {
   if (existing) return;
 
   if (!config.superAdminLogin || config.superAdminLogin.length > 100 ||
-      !config.superAdminPassword || config.superAdminPassword.length < 12 ||
+      !config.superAdminPassword || config.superAdminPassword.length < 5 ||
       config.superAdminPassword.startsWith('replace-with-')) {
-    throw new Error('Birinchi ishga tushirish uchun SUPER_ADMIN_LOGIN va kamida 12 belgili SUPER_ADMIN_PASSWORD kerak.');
+    throw new Error('Birinchi ishga tushirish uchun SUPER_ADMIN_LOGIN va kamida 5 belgili SUPER_ADMIN_PASSWORD kerak.');
   }
 
   await users.insertOne({
