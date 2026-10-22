@@ -44,9 +44,18 @@ function registerUserRoutes(app, { users, authenticate, requireSuperAdmin, logge
     }
   });
 
-  app.get('/users', authenticate, requireSuperAdmin, async (_req, res) => {
+  app.get('/users', authenticate, requireSuperAdmin, async (req, res) => {
+    const search = req.query.search;
+    if (search !== undefined && (typeof search !== 'string' || !search.trim() || search.trim().length > 100)) {
+      return res.status(400).json({ message: 'Qidiruv so‘zini to‘g‘ri kiriting (100 belgigacha).' });
+    }
     try {
-      const staff = await users.find({ role: { $in: [...STAFF_ROLES] } })
+      const filter = { role: { $in: [...STAFF_ROLES] } };
+      if (search !== undefined) {
+        const pattern = new RegExp(search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+        filter.$or = [{ name: pattern }, { login: pattern }];
+      }
+      const staff = await users.find(filter)
         .project({ login: 1, role: 1, name: 1, description: 1 })
         .sort({ createdAt: -1 })
         .toArray();

@@ -197,14 +197,17 @@
       "get": {
         "tags": ["Users"],
         "summary": "Xodimlar ro'yxati",
+        "description": "search berilsa xodim ismi yoki logini bo'yicha qisman qidiradi (harf katta-kichikligiga sezgir emas).",
         "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "search", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 100 } }],
         "responses": {
           "200": {
             "description": "Xodimlar ro'yxati",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UsersResponse" } } }
           },
           "401": { "$ref": "#/components/responses/Unauthorized" },
-          "403": { "$ref": "#/components/responses/Forbidden" }
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "400": { "$ref": "#/components/responses/BadRequest" }
         }
       }
     },
