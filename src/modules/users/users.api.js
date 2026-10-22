@@ -66,6 +66,23 @@ function registerUserRoutes(app, { users, authenticate, requireSuperAdmin, logge
     }
   });
 
+  app.get('/users/:id', authenticate, requireSuperAdmin, async (req, res) => {
+    if (!ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: 'Foydalanuvchi ID noto‘g‘ri.' });
+    }
+    try {
+      const user = await users.findOne({
+        _id: new ObjectId(req.params.id),
+        role: { $in: [...STAFF_ROLES] },
+      });
+      if (!user) return res.status(404).json({ message: 'Foydalanuvchi topilmadi.' });
+      return res.json({ user: publicUser(user) });
+    } catch (error) {
+      logger.error('Foydalanuvchini olishda xatolik:', error);
+      return res.status(500).json({ message: 'Serverda xatolik yuz berdi.' });
+    }
+  });
+
   app.patch('/users/:id', authenticate, requireSuperAdmin, async (req, res) => {
     if (!ObjectId.isValid(req.params.id)) {
       return res.status(400).json({ message: 'Foydalanuvchi ID noto‘g‘ri.' });

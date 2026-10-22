@@ -212,6 +212,24 @@
       }
     },
     "/users/{id}": {
+      "get": {
+        "tags": ["Users"],
+        "summary": "Xodimni ID bo'yicha olish",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Xodim ma'lumotlari",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MeResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
       "patch": {
         "tags": ["Users"],
         "summary": "Xodim ma'lumotlarini yangilash",
