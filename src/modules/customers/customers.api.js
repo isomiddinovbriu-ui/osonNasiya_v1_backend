@@ -286,7 +286,11 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
         .filter(({ distance }) => distance <= radiusKm)
         .sort((a, b) => a.distance - b.distance || a.customer.mijoz_id - b.customer.mijoz_id);
       const hydrated = await withPayments(nearby.map(({ customer }) => customer));
-      return res.json({ customers: hydrated.map((customer, index) => ({ ...publicCustomer(customer), distanceKm: Number(nearby[index].distance.toFixed(3)) })), total: nearby.length });
+      return res.json({ customers: hydrated.map((customer, index) => ({
+        ...publicCustomer(customer),
+        distanceMeters: Math.round(nearby[index].distance * 1000),
+        distanceKm: Number(nearby[index].distance.toFixed(3)),
+      })), total: nearby.length });
     } catch (error) {
       logger.error('Yaqin mijozlarni olishda xatolik:', error);
       return res.status(500).json({ message: 'Serverda xatolik yuz berdi.' });

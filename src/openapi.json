@@ -439,7 +439,7 @@
       "get": {
         "tags": ["Customers"],
         "summary": "Berilgan nuqta atrofidagi mijozlar",
-        "description": "lat va long markaziy nuqta; radiusMeters metrda (masalan, 1000 yoki 12345). Masofa Yer yuzasi bo'ylab to'g'ri chiziq masofasi (haversine) sifatida hisoblanadi, yo'l masofasi emas. Natija eng yaqindan boshlab tartiblanadi; har bir mijozda distanceKm kilometrda qaytadi.",
+        "description": "lat va long markaziy nuqta; radiusMeters metrda (masalan, 1000 yoki 12345). Masofa Yer yuzasi bo'ylab to'g'ri chiziq masofasi (haversine) sifatida hisoblanadi, yo'l masofasi emas. Natija eng yaqindan boshlab tartiblanadi; har bir mijozda distanceMeters metrda va distanceKm kilometrda qaytadi.",
         "security": [{ "bearerAuth": [] }],
         "parameters": [
           { "name": "lat", "in": "query", "required": true, "schema": { "type": "number", "minimum": -90, "maximum": 90 }, "example": 41.2995 },
@@ -1037,7 +1037,7 @@
         "type": "object",
         "required": ["customers", "total"],
         "properties": {
-          "customers": { "type": "array", "items": { "allOf": [{ "$ref": "#/components/schemas/Customer" }, { "type": "object", "required": ["distanceKm"], "properties": { "distanceKm": { "type": "number", "description": "Markaziy nuqtadan masofa, kilometrda, 3 xonagacha yaxlitlangan" } } }] } },
+          "customers": { "type": "array", "items": { "allOf": [{ "$ref": "#/components/schemas/Customer" }, { "type": "object", "required": ["distanceMeters", "distanceKm"], "properties": { "distanceMeters": { "type": "integer", "description": "Markaziy nuqtadan masofa, metrda, eng yaqin butun songa yaxlitlangan" }, "distanceKm": { "type": "number", "description": "Markaziy nuqtadan masofa, kilometrda, 3 xonagacha yaxlitlangan" } } }] } },
           "total": { "type": "integer" }
         }
       },
