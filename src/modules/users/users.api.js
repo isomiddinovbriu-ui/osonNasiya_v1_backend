@@ -68,7 +68,7 @@ function registerUserRoutes(app, { users, customers, authenticate, requireSuperA
         filter.$or = [{ name: pattern }, { login: pattern }];
       }
       const staff = await users.find(filter)
-        .project({ login: 1, role: 1, name: 1, description: 1, avatar: 1 })
+        .project({ login: 1, role: 1, name: 1, description: 1, avatar: 1, createdAt: 1, updatedAt: 1 })
         .sort({ createdAt: -1 })
         .toArray();
       return res.json({ users: staff.map(publicUser) });

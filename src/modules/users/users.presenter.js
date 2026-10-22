@@ -6,6 +6,8 @@ function publicUser(user) {
     name: user.name || '',
     description: user.description || '',
     avatarUrl: user.avatar ? `/api/public/avatars/${user._id}` : null,
+    createdAt: user.createdAt || null,
+    updatedAt: user.updatedAt || null,
   };
 }
 

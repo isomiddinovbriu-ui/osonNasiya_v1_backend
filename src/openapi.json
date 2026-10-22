@@ -807,14 +807,16 @@
       },
       "User": {
         "type": "object",
-        "required": ["id", "login", "role", "name", "description", "avatarUrl"],
+        "required": ["id", "login", "role", "name", "description", "avatarUrl", "createdAt", "updatedAt"],
         "properties": {
           "id": { "type": "string" },
           "login": { "type": "string" },
           "role": { "type": "string", "enum": ["super_admin", "yiguvchi", "sotuvchi", "product_creator"] },
           "name": { "type": "string", "example": "Ali Valiyev" },
           "description": { "type": "string", "example": "Toshkent filiali" },
-          "avatarUrl": { "type": "string", "nullable": true, "description": "Xodim avatarining public URLi; avatar bo'lmasa null" }
+          "avatarUrl": { "type": "string", "nullable": true, "description": "Xodim avatarining public URLi; avatar bo'lmasa null" },
+          "createdAt": { "type": "string", "format": "date-time", "nullable": true },
+          "updatedAt": { "type": "string", "format": "date-time", "nullable": true }
         }
       },
       "LoginRequest": {
