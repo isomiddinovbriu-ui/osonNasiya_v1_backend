@@ -252,6 +252,62 @@
           "404": { "$ref": "#/components/responses/NotFound" },
           "409": { "$ref": "#/components/responses/Conflict" }
         }
+      },
+      "delete": {
+        "tags": ["Users"],
+        "summary": "Xodimni o'chirish",
+        "description": "Faqat super_admin. Xodimga mijoz biriktirilgan bo'lsa, avval ularni boshqa xodimga o'tkazish kerak. Xodim faol ro'yxatdan chiqariladi, uning tokenlari yaroqsiz bo'ladi va avatari o'chiriladi. Tarixiy savdo va audit yozuvlari uchun xodim ma'lumoti saqlanadi.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "204": { "description": "Xodim o'chirildi" },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" }
+        }
+      }
+    },
+    "/users/{id}/avatar": {
+      "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "put": {
+        "tags": ["Users"],
+        "summary": "Xodim avatarini yuklash yoki almashtirish",
+        "description": "Faqat super_admin. Bitta JPEG, PNG yoki WebP rasm, 5 MB gacha. Avvalgi avatar almashtiriladi.",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": { "required": true, "content": { "multipart/form-data": { "schema": { "type": "object", "required": ["avatar"], "properties": { "avatar": { "type": "string", "format": "binary" } } } } } },
+        "responses": {
+          "200": { "description": "Avatar saqlandi", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MeResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" }
+        }
+      },
+      "delete": {
+        "tags": ["Users"], "summary": "Xodim avatarini o'chirish", "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Avatar o'chirildi", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MeResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" }
+        }
+      }
+    },
+    "/api/public/avatars/{id}": {
+      "get": {
+        "tags": ["Users"], "summary": "Xodim avatar rasmini olish", "description": "avatarUrl orqali autentifikatsiyasiz olinadi.",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "Rasm", "content": { "image/jpeg": { "schema": { "type": "string", "format": "binary" } }, "image/png": { "schema": { "type": "string", "format": "binary" } }, "image/webp": { "schema": { "type": "string", "format": "binary" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
       }
     },
     "/regions": {
@@ -751,13 +807,14 @@
       },
       "User": {
         "type": "object",
-        "required": ["id", "login", "role", "name", "description"],
+        "required": ["id", "login", "role", "name", "description", "avatarUrl"],
         "properties": {
           "id": { "type": "string" },
           "login": { "type": "string" },
           "role": { "type": "string", "enum": ["super_admin", "yiguvchi", "sotuvchi", "product_creator"] },
           "name": { "type": "string", "example": "Ali Valiyev" },
-          "description": { "type": "string", "example": "Toshkent filiali" }
+          "description": { "type": "string", "example": "Toshkent filiali" },
+          "avatarUrl": { "type": "string", "nullable": true, "description": "Xodim avatarining public URLi; avatar bo'lmasa null" }
         }
       },
       "LoginRequest": {

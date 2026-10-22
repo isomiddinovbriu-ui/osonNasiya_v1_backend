@@ -48,7 +48,7 @@ async function rotateSession(refreshSessions, users, refreshToken, now) {
   );
   if (!session) return null;
   const user = await users.findOne({ _id: session.userId });
-  if (!user || user.role !== session.role) {
+  if (!user || user.deletedAt || user.role !== session.role) {
     await refreshSessions.updateOne({ _id: session._id }, { $set: { revokedAt: currentTime } });
     return null;
   }

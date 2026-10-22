@@ -13,7 +13,7 @@ function createAuthMiddleware({ users, refreshSessions, jwtSecret, logger, now =
         return res.status(401).json({ message: 'Sessiya tugadi.' });
       }
       const user = await users.findOne({ _id: new ObjectId(payload.sub) });
-      if (!user || !ROLES.has(user.role) || user.role !== payload.role) {
+      if (!user || user.deletedAt || !ROLES.has(user.role) || user.role !== payload.role) {
         return res.status(401).json({ message: 'Sessiya tugadi.' });
       }
       if (payload.sid !== undefined) {

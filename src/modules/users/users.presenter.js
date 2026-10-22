@@ -5,6 +5,7 @@ function publicUser(user) {
     role: user.role,
     name: user.name || '',
     description: user.description || '',
+    avatarUrl: user.avatar ? `/api/public/avatars/${user._id}` : null,
   };
 }
 

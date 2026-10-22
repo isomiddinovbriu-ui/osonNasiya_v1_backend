@@ -43,7 +43,7 @@ function createApp({ users, loginRequests, refreshSessions, regions, customers, 
     if (origin) {
       res.set('Access-Control-Allow-Origin', origin);
       res.set('Vary', 'Origin');
-      res.set('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+      res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
       res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, Idempotency-Key');
       res.set('Access-Control-Allow-Credentials', 'true');
     }
@@ -58,7 +58,7 @@ function createApp({ users, loginRequests, refreshSessions, regions, customers, 
 
   const { authenticate, requireSuperAdmin } = createAuthMiddleware({ users, refreshSessions, jwtSecret, logger, now });
   registerAuthRoutes(app, { users, loginRequests, refreshSessions, jwtSecret, authenticate, logger, now });
-  registerUserRoutes(app, { users, authenticate, requireSuperAdmin, logger, now });
+  registerUserRoutes(app, { users, customers, authenticate, requireSuperAdmin, imageStorage, logger, now });
   registerRegionRoutes(app, { regions, customers, authenticate, logger, now });
   registerCustomerRoutes(app, { authenticate, users, customers, payments, paymentApps, paymentRequests, auditLogs, mongoClient, counters, regions, productCategories, products, jwtSecret, logger, now });
   if (contacts) registerContactRoutes(app, { authenticate, customers, contacts, payments, logger, now });

@@ -462,7 +462,7 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
     }
     try {
       if (changes.assignedTo) {
-        const staff = await users.findOne({ _id: changes.assignedTo, role: { $in: ['sotuvchi', 'yiguvchi'] } });
+        const staff = await users.findOne({ _id: changes.assignedTo, role: { $in: ['sotuvchi', 'yiguvchi'] }, deletedAt: { $exists: false } });
         if (!staff) return res.status(404).json({ message: 'Mas’ul xodim topilmadi.' });
       }
       const session = mongoClient.startSession();

@@ -61,7 +61,7 @@ function registerAuthRoutes(app, { users, loginRequests, refreshSessions, jwtSec
 
     try {
       const user = await users.findOne({ login });
-      const valid = user && ROLES.has(user.role) && await bcrypt.compare(password, user.passwordHash);
+      const valid = user && !user.deletedAt && ROLES.has(user.role) && await bcrypt.compare(password, user.passwordHash);
       if (!valid) {
         const current = attempts.get(key);
         attempts.set(key, current && current.until > now()
