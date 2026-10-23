@@ -15,7 +15,7 @@
     { "name": "Contacts", "description": "Aloqa tarixi, keyingi aloqalar va to'lov va'dalari" },
     { "name": "Collections", "description": "Yig'uvchilarning kundalik ish ro'yxati" },
     { "name": "Payments", "description": "Mijoz to'lovlari" },
-    { "name": "Reports", "description": "Tushum, savdo, qarz va CSV eksport; faqat super_admin" },
+    { "name": "Reports", "description": "Tushum, savdo, qarz va CSV eksport; oylik qarz hisobotlari barcha tizim xodimlariga, qolganlari faqat super_admin ga" },
     { "name": "Catalog", "description": "Mahsulot guruhlari, bo'limlari va mahsulotlar" }
   ],
   "paths": {
@@ -725,7 +725,7 @@
     "/reports/monthly-debts": {
       "get": {
         "tags": ["Reports"], "summary": "Oy yoki yil va summa oralig'i bo'yicha qarzlar",
-        "description": "month berilsa tanlangan oy uchun hisoblangan to'lanmagan qism (debtAmount) qaytadi. month berilmasa yilning 12 oyi uchun shu qismlar mijoz bo'yicha yig'iladi va months tafsiloti qaytadi; summa filtri yillik debtAmount ga qo'llanadi. Ikkala summa chegarasi ham kiritiladi. Oylik qism totalPrice - downPayment ni termMonths ga teng taqsimlash orqali hisoblanadi. forMonth berilgan faol to'lov shu oyga, eski forMonth siz to'lov qabul qilingan Toshkent oyiga tegishli. Oldindan to'langan jami summa tegishli oygacha yetarli bo'lsa o'sha oyning qarzi 0. Bu joriy ma'lumotlardan hisoblanadi, tarixiy balans emas. CSV faqat so'ralgan sahifani beradi. Faqat super_admin.",
+        "description": "month berilsa tanlangan oy uchun hisoblangan to'lanmagan qism (debtAmount) qaytadi. month berilmasa yilning 12 oyi uchun shu qismlar mijoz bo'yicha yig'iladi va months tafsiloti qaytadi; summa filtri yillik debtAmount ga qo'llanadi. Ikkala summa chegarasi ham kiritiladi. Oylik qism totalPrice - downPayment ni termMonths ga teng taqsimlash orqali hisoblanadi. forMonth berilgan faol to'lov shu oyga, eski forMonth siz to'lov qabul qilingan Toshkent oyiga tegishli. Oldindan to'langan jami summa tegishli oygacha yetarli bo'lsa o'sha oyning qarzi 0. Bu joriy ma'lumotlardan hisoblanadi, tarixiy balans emas. CSV faqat so'ralgan sahifani beradi. Barcha tizim xodimlari uchun.",
         "security": [{ "bearerAuth": [] }],
         "parameters": [
           { "name": "year", "in": "query", "required": true, "schema": { "type": "integer", "minimum": 1000, "maximum": 9999 } },
@@ -752,7 +752,7 @@
     "/reports/monthly-underpaid": {
       "get": {
         "tags": ["Reports"], "summary": "Oylik to'lovni qilmagan yoki kam to'lagan mijozlar",
-        "description": "Belgilangan oy uchun 0 so'm to'laganlar unpaid, 0 dan ko'p lekin hisoblangan oylik summadan kam to'laganlar underpaid bo'ladi; shu oygacha jami oldindan to'langan summa yetarli bo'lsa kiritilmaydi. forMonth berilgan to'lov shu oyga, eski forMonth siz to'lov qabul qilingan Toshkent oyiga yoziladi. Bekor qilingan to'lovlar hisobga olinmaydi. Hech qanday penya qo'shilmaydi. CSV faqat so'ralgan sahifani eksport qiladi. Faqat super_admin.",
+        "description": "Belgilangan oy uchun 0 so'm to'laganlar unpaid, 0 dan ko'p lekin hisoblangan oylik summadan kam to'laganlar underpaid bo'ladi; shu oygacha jami oldindan to'langan summa yetarli bo'lsa kiritilmaydi. forMonth berilgan to'lov shu oyga, eski forMonth siz to'lov qabul qilingan Toshkent oyiga yoziladi. Bekor qilingan to'lovlar hisobga olinmaydi. Hech qanday penya qo'shilmaydi. CSV faqat so'ralgan sahifani eksport qiladi. Barcha tizim xodimlari uchun.",
         "security": [{ "bearerAuth": [] }],
         "parameters": [
           { "name": "month", "in": "query", "schema": { "type": "string", "pattern": "^[1-9][0-9]{3}-(0[1-9]|1[0-2])$", "description": "YYYY-MM; berilmasa Toshkentdagi joriy oy" } },

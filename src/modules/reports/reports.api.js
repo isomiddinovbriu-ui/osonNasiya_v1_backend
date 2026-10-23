@@ -270,8 +270,8 @@ function registerReportRoutes(app, { authenticate, customers, payments, regions,
     }
   }
 
-  app.get('/reports/monthly-underpaid', authenticate, requireAdmin, (req, res) => monthlyUnderpaid(req, res));
-  app.get('/reports/monthly-debts', authenticate, requireAdmin, (req, res) => monthlyUnderpaid(req, res, true));
+  app.get('/reports/monthly-underpaid', authenticate, (req, res) => monthlyUnderpaid(req, res));
+  app.get('/reports/monthly-debts', authenticate, (req, res) => monthlyUnderpaid(req, res, true));
 }
 
 module.exports = { registerReportRoutes };
