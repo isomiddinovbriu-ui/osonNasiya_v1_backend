@@ -4,6 +4,7 @@ const { methodIds, validProviderCode, paymentDetails } = require('../payments/pa
 const { balanceSnapshot, paymentSnapshot, auditEntry, publicAudit } = require('../payments/payment-audit');
 const { paymentRequestHash, validIdempotencyKey } = require('../payments/payment-idempotency');
 const { localDate } = require('../reports/reports.service');
+const { withRollback } = require('./rollback');
 
 const CREATOR_ROLES = new Set(['super_admin', 'sotuvchi', 'yiguvchi']);
 const ID_FILTERS = ['regionId', 'groupId', 'sectionId', 'productId', 'createdBy', 'assignedTo', 'paymentId', 'receivedBy'];
@@ -211,6 +212,16 @@ function validCustomerNumber(value) {
   return /^[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value));
 }
 
+function restoreMetadata(document, fields = ['updatedAt']) {
+  const $set = {};
+  const $unset = {};
+  for (const field of fields) {
+    if (Object.hasOwn(document, field)) $set[field] = document[field];
+    else $unset[field] = '';
+  }
+  return { $set, $unset };
+}
+
 function distanceKm(lat1, long1, lat2, long2) {
   const radians = Math.PI / 180;
   const latDelta = (lat2 - lat1) * radians;
@@ -233,10 +244,10 @@ function nearbyQuery(query) {
   return { lat, long, radiusMeters };
 }
 
-function registerCustomerRoutes(app, { authenticate, users, customers, payments, paymentApps, paymentRequests, paymentVoidRequests, dailyPlans, auditLogs, mongoClient, counters, regions, productCategories, products, jwtSecret, logger, now }) {
-  async function withPayments(items, session) {
+function registerCustomerRoutes(app, { authenticate, users, customers, payments, paymentApps, paymentRequests, paymentVoidRequests, dailyPlans, auditLogs, counters, regions, productCategories, products, jwtSecret, logger, now }) {
+  async function withPayments(items) {
     if (!items.length) return items;
-    const rows = await payments.find({ customerId: { $in: items.map((item) => item._id) } }, session ? { session } : undefined)
+    const rows = await payments.find({ customerId: { $in: items.map((item) => item._id) } })
       .sort({ paidAt: 1, _id: 1 }).toArray();
     const byCustomer = new Map();
     for (const row of rows) {
@@ -387,22 +398,27 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
         createdAt,
       };
       document.mijoz_id = await nextCustomerId(counters);
-      const session = mongoClient.startSession();
       let result;
-      try {
-        await session.withTransaction(async () => {
-          result = await customers.insertOne(document, { session });
+      await withRollback(async (step) => {
+          result = await step(() => customers.insertOne(document),
+            () => customers.deleteOne({ _id: result.insertedId }));
           const savedCustomer = { ...document, _id: result.insertedId };
-          await auditLogs.insertOne(auditEntry({ action: 'customer.created', customer: savedCustomer, actor, createdAt,
-            after: { balance: balanceSnapshot(savedCustomer) } }), { session });
+          const customerAudit = auditEntry({ action: 'customer.created', customer: savedCustomer, actor, createdAt,
+            after: { balance: balanceSnapshot(savedCustomer) } });
+          customerAudit._id = new ObjectId();
+          await step(() => auditLogs.insertOne(customerAudit),
+            () => auditLogs.deleteOne({ _id: customerAudit._id }));
           if (initialPayment) {
-            await payments.insertOne({ ...initialPayment, customerId: result.insertedId, mijoz_id: document.mijoz_id }, { session });
-            await auditLogs.insertOne(auditEntry({ action: 'payment.created', customer: savedCustomer, payment: initialPayment, actor, createdAt,
+            await step(() => payments.insertOne({ ...initialPayment, customerId: result.insertedId, mijoz_id: document.mijoz_id }),
+              () => payments.deleteOne({ _id: initialPayment._id }));
+            const paymentAudit = auditEntry({ action: 'payment.created', customer: savedCustomer, payment: initialPayment, actor, createdAt,
               before: { balance: { downPayment: 0, totalPaid: 0, remainingBalance: totalPrice } },
-              after: { payment: paymentSnapshot(initialPayment), balance: balanceSnapshot(savedCustomer) } }), { session });
+              after: { payment: paymentSnapshot(initialPayment), balance: balanceSnapshot(savedCustomer) } });
+            paymentAudit._id = new ObjectId();
+            await step(() => auditLogs.insertOne(paymentAudit),
+              () => auditLogs.deleteOne({ _id: paymentAudit._id }));
           }
-        });
-      } finally { await session.endSession(); }
+      }, logger);
       return res.status(201).json({ customer: publicCustomer({ ...document, _id: result.insertedId, payments: initialPayment ? [initialPayment] : [] }) });
     } catch (error) {
       logger.error('Mijoz yaratishda xatolik:', error);
@@ -471,12 +487,10 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
         const staff = await users.findOne({ _id: changes.assignedTo, role: { $in: ['sotuvchi', 'yiguvchi'] }, deletedAt: { $exists: false } });
         if (!staff) return res.status(404).json({ message: 'Mas’ul xodim topilmadi.' });
       }
-      const session = mongoClient.startSession();
       let updated;
       let audit;
-      try {
-        await session.withTransaction(async () => {
-          const customer = await customers.findOne({ mijoz_id: Number(req.params.mijoz_id) }, { session });
+      await withRollback(async (step) => {
+          const customer = await customers.findOne({ mijoz_id: Number(req.params.mijoz_id) });
           if (!customer) { const error = new Error('Mijoz topilmadi.'); error.status = 404; throw error; }
           const before = {};
           const after = {};
@@ -489,15 +503,21 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
           if (!Object.keys(after).length) { updated = customer; return; }
           const changed = Object.fromEntries(Object.keys(after).map((field) => [field, changes[field]]));
           const changedAt = new Date(now());
-          updated = await customers.findOneAndUpdate({ _id: customer._id },
+          updated = await step(() => customers.findOneAndUpdate({ _id: customer._id,
+            updatedAt: Object.hasOwn(customer, 'updatedAt') ? customer.updatedAt : { $exists: false } },
             { $set: { ...changed, updatedAt: changedAt, updatedBy: res.locals.currentUser._id } },
-            { returnDocument: 'after', session });
+            { returnDocument: 'after' }), async () => {
+              const restore = Object.fromEntries(Object.keys(changed).map((field) => [field, customer[field] ?? null]));
+              const metadata = restoreMetadata(customer, ['updatedAt', 'updatedBy']);
+              return customers.updateOne({ _id: customer._id, updatedAt: changedAt },
+                { $set: { ...restore, ...metadata.$set }, $unset: metadata.$unset });
+            });
+          if (!updated) { const error = new Error('Mijoz bir vaqtda o‘zgartirilgan.'); error.status = 409; throw error; }
           audit = auditEntry({ action: 'customer.updated', customer: updated, actor: res.locals.currentUser,
             createdAt: changedAt, before, after });
-          const result = await auditLogs.insertOne(audit, { session });
-          audit._id = result.insertedId;
-        });
-      } finally { await session.endSession(); }
+          audit._id = new ObjectId();
+          await step(() => auditLogs.insertOne(audit), () => auditLogs.deleteOne({ _id: audit._id }));
+      }, logger);
       return res.json({ customer: publicCustomer((await withPayments([updated]))[0]), audit: audit ? publicAudit(audit) : null });
     } catch (error) {
       if (error.status) return res.status(error.status).json({ message: error.message });
@@ -518,12 +538,11 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
         ('termMonths' in body && (!Number.isInteger(body.termMonths) || body.termMonths < 1 || body.termMonths > 120))) {
       return res.status(400).json({ message: 'Narx, muddat va 1–500 belgili sababni to‘g‘ri kiriting.' });
     }
-    const session = mongoClient.startSession();
     let updated;
     let audit;
     try {
-      await session.withTransaction(async () => {
-        const customer = await customers.findOne({ mijoz_id: Number(req.params.mijoz_id) }, { session });
+      await withRollback(async (step) => {
+        const customer = await customers.findOne({ mijoz_id: Number(req.params.mijoz_id) });
         if (!customer) { const error = new Error('Mijoz topilmadi.'); error.status = 404; throw error; }
         const totalPrice = body.totalPrice ?? customer.totalPrice;
         const termMonths = body.termMonths ?? customer.termMonths;
@@ -531,30 +550,35 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
           const error = new Error('Yangi narx to‘langan summadan kam bo‘lmasligi kerak.'); error.status = 409; throw error;
         }
         if (body.totalPrice !== undefined && customer.productId) {
-          const product = await products.findOne({ _id: customer.productId }, { session });
+          const product = await products.findOne({ _id: customer.productId });
           if (product?.minSellingPrice != null && totalPrice < product.minSellingPrice) {
             const error = new Error('Yangi narx mahsulotning eng past sotilish narxidan kam.'); error.status = 409; throw error;
           }
         }
         if (totalPrice === customer.totalPrice && termMonths === customer.termMonths) { updated = customer; return; }
         const changedAt = new Date(now());
-        updated = await customers.findOneAndUpdate({ _id: customer._id },
+        updated = await step(() => customers.findOneAndUpdate({ _id: customer._id,
+          updatedAt: Object.hasOwn(customer, 'updatedAt') ? customer.updatedAt : { $exists: false }, totalPaid: customer.totalPaid },
           { $set: { totalPrice, termMonths, remainingBalance: totalPrice - customer.totalPaid,
             updatedAt: changedAt, updatedBy: res.locals.currentUser._id } },
-          { returnDocument: 'after', session });
+          { returnDocument: 'after' }), () => customers.updateOne({ _id: customer._id, updatedAt: changedAt },
+          { $set: { totalPrice: customer.totalPrice, termMonths: customer.termMonths,
+            remainingBalance: customer.remainingBalance, ...restoreMetadata(customer, ['updatedAt', 'updatedBy']).$set },
+            $unset: restoreMetadata(customer, ['updatedAt', 'updatedBy']).$unset }));
+        if (!updated) { const error = new Error('Mijoz bir vaqtda o‘zgartirilgan.'); error.status = 409; throw error; }
         audit = auditEntry({ action: 'customer.terms_updated', customer: updated, actor: res.locals.currentUser,
           createdAt: changedAt, reason: body.reason.trim(),
           before: { totalPrice: customer.totalPrice, termMonths: customer.termMonths, remainingBalance: customer.remainingBalance },
           after: { totalPrice: updated.totalPrice, termMonths: updated.termMonths, remainingBalance: updated.remainingBalance } });
-        const result = await auditLogs.insertOne(audit, { session });
-        audit._id = result.insertedId;
-      });
+        audit._id = new ObjectId();
+        await step(() => auditLogs.insertOne(audit), () => auditLogs.deleteOne({ _id: audit._id }));
+      }, logger);
       return res.json({ customer: publicCustomer((await withPayments([updated]))[0]), audit: audit ? publicAudit(audit) : null });
     } catch (error) {
       if (error.status) return res.status(error.status).json({ message: error.message });
       logger.error('Mijoz shartlarini yangilashda xatolik:', error);
       return res.status(500).json({ message: 'Serverda xatolik yuz berdi.' });
-    } finally { await session.endSession(); }
+    }
   });
 
   app.post('/customers/:mijoz_id/payments', authenticate, async (req, res) => {
@@ -575,6 +599,7 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
     const requestFilter = idempotencyKey ? { actorId, key: idempotencyKey } : null;
     function replay(existing) {
       if (existing.requestHash !== requestHash) return res.status(409).json({ message: 'Idempotency-Key boshqa so‘rov uchun ishlatilgan.' });
+      if (!existing.response) return res.status(409).json({ message: 'To‘lov so‘rovi hali bajarilmoqda. Qayta urinib ko‘ring.' });
       res.set('Idempotency-Replayed', 'true');
       return res.status(201).json(existing.response);
     }
@@ -598,54 +623,60 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
         status: 'active',
         ...details,
       };
-      const session = mongoClient.startSession();
       let updated;
       let savedResponse;
-      try {
-        await session.withTransaction(async () => {
+      await withRollback(async (step) => {
           if (requestFilter) {
-            await paymentRequests.insertOne({ ...requestFilter, requestHash, createdAt: payment.paidAt }, { session });
+            await step(() => paymentRequests.insertOne({ ...requestFilter, requestHash, createdAt: payment.paidAt }),
+              () => paymentRequests.deleteOne({ ...requestFilter, requestHash }));
           }
-          updated = await customers.findOneAndUpdate(
+          const oldCustomer = await customers.findOne({ mijoz_id: mijozId });
+          updated = await step(() => customers.findOneAndUpdate(
             { mijoz_id: mijozId, remainingBalance: { $gte: amount } },
             { $inc: { totalPaid: amount, remainingBalance: -amount }, $set: { updatedAt: payment.paidAt } },
-            { returnDocument: 'after', session },
-          );
+            { returnDocument: 'after' },
+          ), () => updated && customers.updateOne(
+            { _id: updated._id, updatedAt: payment.paidAt, totalPaid: updated.totalPaid, remainingBalance: updated.remainingBalance },
+            { $inc: { totalPaid: -amount, remainingBalance: amount },
+              ...restoreMetadata(oldCustomer ?? {}) }));
           if (!updated) {
-            const customer = await customers.findOne({ mijoz_id: mijozId }, { session });
+            const customer = await customers.findOne({ mijoz_id: mijozId });
             const error = new Error(customer ? 'To‘lov qolgan qarzdan katta.' : 'Mijoz topilmadi.');
             error.status = customer ? 409 : 404;
             throw error;
           }
-          const plan = await dailyPlans.findOne({ _id: payment.dailyPlanId }, { session });
+          const plan = await dailyPlans.findOne({ _id: payment.dailyPlanId });
           if (!plan) { const error = new Error('Kunlik reja topilmadi.'); error.status = 404; throw error; }
           if (!plan.regionId.equals(updated.regionId)) {
             const error = new Error('Mijoz boshqa hududdagi rejaga tegishli.'); error.status = 409; throw error;
           }
-          const planUpdate = await dailyPlans.updateOne(
+          const planUpdate = await step(() => dailyPlans.updateOne(
             { _id: payment.dailyPlanId, date: localDate(payment.paidAt), status: 'open' },
             { $push: { payments: { paymentId: payment._id, customerId: updated._id,
               mijoz_id: updated.mijoz_id, amount, receivedBy: actorId, paidAt: payment.paidAt,
-              status: 'active' } }, $inc: { paymentCount: 1, totalAmount: amount } }, { session },
-          );
+              status: 'active' } }, $inc: { paymentCount: 1, totalAmount: amount } }),
+            () => dailyPlans.updateOne({ _id: payment.dailyPlanId, 'payments.paymentId': payment._id },
+              { $pull: { payments: { paymentId: payment._id } }, $inc: { paymentCount: -1, totalAmount: -amount } }));
           if (planUpdate.matchedCount !== 1) {
             const error = new Error('Reja yopilgan yoki bugungi kunga tegishli emas.'); error.status = 409; throw error;
           }
-          await payments.insertOne({ ...payment, customerId: updated._id, mijoz_id: updated.mijoz_id }, { session });
-          await auditLogs.insertOne(auditEntry({ action: 'payment.created', customer: updated, payment,
+          await step(() => payments.insertOne({ ...payment, customerId: updated._id, mijoz_id: updated.mijoz_id }),
+            () => payments.deleteOne({ _id: payment._id }));
+          const paymentAudit = auditEntry({ action: 'payment.created', customer: updated, payment,
             actor: res.locals.currentUser, createdAt: payment.paidAt,
             before: { balance: { downPayment: updated.downPayment, totalPaid: updated.totalPaid - amount,
               remainingBalance: updated.remainingBalance + amount } },
-            after: { payment: paymentSnapshot(payment), balance: balanceSnapshot(updated) } }), { session });
+            after: { payment: paymentSnapshot(payment), balance: balanceSnapshot(updated) } });
+          paymentAudit._id = new ObjectId();
+          await step(() => auditLogs.insertOne(paymentAudit), () => auditLogs.deleteOne({ _id: paymentAudit._id }));
           if (requestFilter) {
             savedResponse = { paymentId: payment._id.toString(), payment: publicPayment(payment),
-              customer: publicCustomer((await withPayments([updated], session))[0]) };
+              customer: publicCustomer((await withPayments([updated]))[0]) };
             const stored = await paymentRequests.updateOne(requestFilter, { $set: { response: savedResponse, paymentId: payment._id,
-              customerId: updated._id, completedAt: payment.paidAt } }, { session });
+              customerId: updated._id, completedAt: payment.paidAt } });
             if (stored.matchedCount !== 1) throw new Error('Idempotency yozuvi topilmadi.');
           }
-        });
-      } finally { await session.endSession(); }
+      }, logger);
       return res.status(201).json(savedResponse ?? { paymentId: payment._id.toString(), payment: publicPayment(payment), customer: publicCustomer((await withPayments([updated]))[0]) });
     } catch (error) {
       if (error.code === 11000 && requestFilter) {
@@ -676,13 +707,12 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
     const actor = res.locals.currentUser;
     const voidedAt = new Date(now());
     let reason = typeof body.reason === 'string' ? body.reason.trim() : null;
-    const session = mongoClient.startSession();
     let updatedPayment;
     let updatedCustomer;
     let audit;
     try {
-      await session.withTransaction(async () => {
-        const previous = await payments.findOne({ _id: paymentId, mijoz_id: mijozId }, { session });
+      await withRollback(async (step) => {
+        const previous = await payments.findOne({ _id: paymentId, mijoz_id: mijozId });
         if (!previous) {
           const error = new Error('To‘lov topilmadi.'); error.status = 404; throw error;
         }
@@ -694,15 +724,20 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
             const error = new Error('Rejadagi to‘lov uchun bekor qilish so‘rovi kerak.'); error.status = 409; throw error;
           }
           const request = await paymentVoidRequests.findOne({ _id: new ObjectId(body.requestId),
-            paymentId, customerId: previous.customerId, status: 'pending' }, { session });
+            paymentId, customerId: previous.customerId, status: 'pending' });
           if (!request) { const error = new Error('Ochiq bekor qilish so‘rovi topilmadi.'); error.status = 404; throw error; }
           reason = request.reason;
-          const approved = await paymentVoidRequests.updateOne({ _id: request._id, status: 'pending' },
-            { $set: { status: 'approved', reviewedAt: voidedAt, reviewedBy: actor._id } }, { session });
+          const approved = await step(() => paymentVoidRequests.updateOne({ _id: request._id, status: 'pending' },
+            { $set: { status: 'approved', reviewedAt: voidedAt, reviewedBy: actor._id } }),
+            () => paymentVoidRequests.updateOne({ _id: request._id, status: 'approved', reviewedAt: voidedAt },
+              { $set: { status: 'pending' }, $unset: { reviewedAt: '', reviewedBy: '' } }));
           if (approved.matchedCount !== 1) { const error = new Error('So‘rov allaqachon ko‘rilgan.'); error.status = 409; throw error; }
-          const planUpdate = await dailyPlans.updateOne({ _id: previous.dailyPlanId,
+          const planUpdate = await step(() => dailyPlans.updateOne({ _id: previous.dailyPlanId,
             payments: { $elemMatch: { paymentId, status: 'active' } } },
-          { $set: { 'payments.$.status': 'voided' }, $inc: { paymentCount: -1, totalAmount: -previous.amount } }, { session });
+          { $set: { 'payments.$.status': 'voided' }, $inc: { paymentCount: -1, totalAmount: -previous.amount } }),
+          () => dailyPlans.updateOne({ _id: previous.dailyPlanId,
+            payments: { $elemMatch: { paymentId, status: 'voided' } } },
+          { $set: { 'payments.$.status': 'active' }, $inc: { paymentCount: 1, totalAmount: previous.amount } }));
           if (planUpdate.matchedCount !== 1) { const error = new Error('Rejadagi to‘lov mos kelmadi.'); error.status = 409; throw error; }
         } else if (!reason) {
           const error = new Error('Bekor qilish sababini kiriting.'); error.status = 400; throw error;
@@ -711,22 +746,28 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
             !['initial', 'installment'].includes(previous.type) || !previous.customerId) {
           const error = new Error('To‘lov ma’lumotlari to‘g‘ri emas.'); error.status = 409; throw error;
         }
-        updatedPayment = await payments.findOneAndUpdate(
+        updatedPayment = await step(() => payments.findOneAndUpdate(
           { _id: paymentId, mijoz_id: mijozId, status: { $ne: 'voided' } },
           { $set: { status: 'voided', voidedAt, voidedBy: actor._id, voidReason: reason } },
-          { returnDocument: 'after', session },
-        );
+          { returnDocument: 'after' },
+        ), () => updatedPayment && payments.updateOne({ _id: paymentId, status: 'voided', voidedAt },
+          { $set: { status: previous.status ?? 'active' },
+            $unset: { voidedAt: '', voidedBy: '', voidReason: '' } }));
         if (!updatedPayment) {
           const error = new Error('To‘lov allaqachon bekor qilingan.'); error.status = 409; throw error;
         }
         const balanceChange = { totalPaid: -previous.amount, remainingBalance: previous.amount };
         if (previous.type === 'initial') balanceChange.downPayment = -previous.amount;
-        updatedCustomer = await customers.findOneAndUpdate(
+        const oldCustomer = await customers.findOne({ _id: previous.customerId });
+        updatedCustomer = await step(() => customers.findOneAndUpdate(
           { _id: previous.customerId, mijoz_id: mijozId, totalPaid: { $gte: previous.amount },
             ...(previous.type === 'initial' && { downPayment: { $gte: previous.amount } }) },
           { $inc: balanceChange, $set: { updatedAt: voidedAt } },
-          { returnDocument: 'after', session },
-        );
+          { returnDocument: 'after' },
+        ), () => updatedCustomer && customers.updateOne({ _id: previous.customerId, updatedAt: voidedAt,
+          totalPaid: updatedCustomer.totalPaid, remainingBalance: updatedCustomer.remainingBalance },
+        { $inc: Object.fromEntries(Object.entries(balanceChange).map(([key, value]) => [key, -value])),
+          ...restoreMetadata(oldCustomer ?? {}) }));
         if (!updatedCustomer) throw new Error('To‘lov va mijoz balansi mos emas.');
         audit = auditEntry({ action: 'payment.voided', customer: updatedCustomer, payment: previous,
           actor, createdAt: voidedAt, reason,
@@ -736,15 +777,15 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
             remainingBalance: updatedCustomer.remainingBalance - previous.amount,
           } },
           after: { payment: paymentSnapshot(updatedPayment), balance: balanceSnapshot(updatedCustomer) } });
-        const result = await auditLogs.insertOne(audit, { session });
-        audit._id = result.insertedId;
-      });
+        audit._id = new ObjectId();
+        await step(() => auditLogs.insertOne(audit), () => auditLogs.deleteOne({ _id: audit._id }));
+      }, logger);
       return res.json({ payment: publicPayment(updatedPayment), customer: publicCustomer((await withPayments([updatedCustomer]))[0]), audit: publicAudit(audit) });
     } catch (error) {
       if (error.status) return res.status(error.status).json({ message: error.message });
       logger.error('To‘lovni bekor qilishda xatolik:', error);
       return res.status(500).json({ message: 'Serverda xatolik yuz berdi.' });
-    } finally { await session.endSession(); }
+    }
   }
   app.post('/customers/:mijoz_id/payments/:paymentId/void', authenticate, voidPaymentHandler);
   app.post('/payment-void-requests/:id/approve', authenticate, async (req, res) => {

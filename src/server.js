@@ -80,7 +80,6 @@ async function start() {
       dailyPlans,
       auditLogs,
       paymentApps,
-      mongoClient: client,
       counters,
       productCategories,
       products,
