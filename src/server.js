@@ -9,6 +9,7 @@ const { prepareCustomerIds } = require('./modules/customers/customer-id.service'
 const { prepareProductIds } = require('./modules/catalog/product-id.service');
 const { migratePayments } = require('./modules/payments/payments.migrate');
 const { seedPaymentApps } = require('./modules/payments/payment-apps.seed');
+const { closeExpiredPlans } = require('./modules/collections/daily-plans.api');
 
 async function start() {
   const config = readConfig();
@@ -26,6 +27,8 @@ async function start() {
     const products = client.db().collection('products');
     const payments = client.db().collection('payments');
     const paymentRequests = client.db().collection('payment_requests');
+    const paymentVoidRequests = client.db().collection('payment_void_requests');
+    const dailyPlans = client.db().collection('daily_plans');
     const auditLogs = client.db().collection('audit_logs');
     const paymentApps = client.db().collection('payment_apps');
     const imageStorage = createProductStorage(config);
@@ -51,6 +54,11 @@ async function start() {
     await payments.createIndex({ forMonth: 1, customerId: 1 });
     await payments.createIndex({ paidAt: -1 });
     await paymentRequests.createIndex({ actorId: 1, key: 1 }, { unique: true });
+    await paymentVoidRequests.createIndex({ paymentId: 1 },
+      { unique: true, partialFilterExpression: { status: 'pending' } });
+    await dailyPlans.createIndex({ ownerId: 1, date: -1, regionId: 1 });
+    await payments.createIndex({ dailyPlanId: 1, paidAt: 1 });
+    await closeExpiredPlans(dailyPlans, new Date());
     await auditLogs.createIndex({ mijoz_id: 1, createdAt: -1, _id: -1 });
     await auditLogs.createIndex({ entityType: 1, entityId: 1, createdAt: -1 });
     await migratePayments(customers, payments);
@@ -68,6 +76,8 @@ async function start() {
       contacts,
       payments,
       paymentRequests,
+      paymentVoidRequests,
+      dailyPlans,
       auditLogs,
       paymentApps,
       mongoClient: client,
@@ -80,8 +90,12 @@ async function start() {
     const server = app.listen(config.port, '0.0.0.0', () => {
       console.log(`OsonNasiya API ${config.port}-portda ishlayapti. Swagger: http://localhost:${config.port}/docs`);
     });
+    const dayCloseTimer = setInterval(() => closeExpiredPlans(dailyPlans, new Date()).catch((error) =>
+      console.error('Kunlik rejalarni yopishda xatolik:', error)), 60_000);
+    dayCloseTimer.unref();
 
     async function shutdown() {
+      clearInterval(dayCloseTimer);
       server.close();
       await client.close();
     }

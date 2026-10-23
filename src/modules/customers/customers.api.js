@@ -3,6 +3,7 @@ const { nextCustomerId } = require('./customer-id.service');
 const { methodIds, validProviderCode, paymentDetails } = require('../payments/payment-options');
 const { balanceSnapshot, paymentSnapshot, auditEntry, publicAudit } = require('../payments/payment-audit');
 const { paymentRequestHash, validIdempotencyKey } = require('../payments/payment-idempotency');
+const { localDate } = require('../reports/reports.service');
 
 const CREATOR_ROLES = new Set(['super_admin', 'sotuvchi', 'yiguvchi']);
 const ID_FILTERS = ['regionId', 'groupId', 'sectionId', 'productId', 'createdBy', 'assignedTo', 'paymentId', 'receivedBy'];
@@ -159,6 +160,7 @@ function publicPayment(payment) {
     amount: payment.amount,
     method: payment.method,
     receivedBy: payment.receivedBy.toString(),
+    dailyPlanId: payment.dailyPlanId?.toString() ?? null,
     paidAt: payment.paidAt,
     forMonth: payment.forMonth ?? null,
     cardLast4: payment.cardLast4 ?? null,
@@ -231,7 +233,7 @@ function nearbyQuery(query) {
   return { lat, long, radiusMeters };
 }
 
-function registerCustomerRoutes(app, { authenticate, users, customers, payments, paymentApps, paymentRequests, auditLogs, mongoClient, counters, regions, productCategories, products, jwtSecret, logger, now }) {
+function registerCustomerRoutes(app, { authenticate, users, customers, payments, paymentApps, paymentRequests, paymentVoidRequests, dailyPlans, auditLogs, mongoClient, counters, regions, productCategories, products, jwtSecret, logger, now }) {
   async function withPayments(items, session) {
     if (!items.length) return items;
     const rows = await payments.find({ customerId: { $in: items.map((item) => item._id) } }, session ? { session } : undefined)
@@ -562,10 +564,10 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
     if (idempotencyKey !== undefined && !validIdempotencyKey(idempotencyKey)) {
       return res.status(400).json({ message: 'Idempotency-Key 8–128 belgili harf, raqam, nuqta, chiziq, pastki chiziq yoki ikki nuqtadan iborat bo‘lishi kerak.' });
     }
-    const { amount, method, forMonth, cardNumber, provider, providerName } = req.body || {};
+    const { amount, method, forMonth, cardNumber, provider, providerName, dailyPlanId } = req.body || {};
     if (!Number.isSafeInteger(amount) || amount <= 0 ||
-        (forMonth !== undefined && !validPaymentMonth(forMonth))) {
-      return res.status(400).json({ message: 'To‘lov summasi, usuli va forMonth (YYYY-MM) ni to‘g‘ri kiriting.' });
+        (forMonth !== undefined && !validPaymentMonth(forMonth)) || !ObjectId.isValid(dailyPlanId)) {
+      return res.status(400).json({ message: 'To‘lov summasi, usuli, forMonth (YYYY-MM) va dailyPlanId ni to‘g‘ri kiriting.' });
     }
     const actorId = res.locals.currentUser._id;
     const mijozId = Number(req.params.mijoz_id);
@@ -590,6 +592,7 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
         amount,
         method,
         receivedBy: res.locals.currentUser._id,
+        dailyPlanId: new ObjectId(dailyPlanId),
         paidAt: new Date(now()),
         forMonth: forMonth ?? null,
         status: 'active',
@@ -613,6 +616,20 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
             const error = new Error(customer ? 'To‘lov qolgan qarzdan katta.' : 'Mijoz topilmadi.');
             error.status = customer ? 409 : 404;
             throw error;
+          }
+          const plan = await dailyPlans.findOne({ _id: payment.dailyPlanId }, { session });
+          if (!plan) { const error = new Error('Kunlik reja topilmadi.'); error.status = 404; throw error; }
+          if (!plan.regionId.equals(updated.regionId)) {
+            const error = new Error('Mijoz boshqa hududdagi rejaga tegishli.'); error.status = 409; throw error;
+          }
+          const planUpdate = await dailyPlans.updateOne(
+            { _id: payment.dailyPlanId, date: localDate(payment.paidAt), status: 'open' },
+            { $push: { payments: { paymentId: payment._id, customerId: updated._id,
+              mijoz_id: updated.mijoz_id, amount, receivedBy: actorId, paidAt: payment.paidAt,
+              status: 'active' } }, $inc: { paymentCount: 1, totalAmount: amount } }, { session },
+          );
+          if (planUpdate.matchedCount !== 1) {
+            const error = new Error('Reja yopilgan yoki bugungi kunga tegishli emas.'); error.status = 409; throw error;
           }
           await payments.insertOne({ ...payment, customerId: updated._id, mijoz_id: updated.mijoz_id }, { session });
           await auditLogs.insertOne(auditEntry({ action: 'payment.created', customer: updated, payment,
@@ -643,21 +660,22 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
     }
   });
 
-  app.post('/customers/:mijoz_id/payments/:paymentId/void', authenticate, async (req, res) => {
+  async function voidPaymentHandler(req, res) {
     if (res.locals.currentUser.role !== 'super_admin') return res.status(403).json({ message: 'Bu amal uchun ruxsat yo‘q.' });
     if (!validCustomerNumber(req.params.mijoz_id) || !ObjectId.isValid(req.params.paymentId)) {
       return res.status(400).json({ message: 'Mijoz yoki to‘lov ID noto‘g‘ri.' });
     }
     const body = req.body;
     if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length !== 1 ||
-        typeof body.reason !== 'string' || !body.reason.trim() || body.reason.trim().length > 500) {
-      return res.status(400).json({ message: 'Bekor qilish sababi 1–500 belgidan iborat bo‘lishi kerak.' });
+        !(typeof body.reason === 'string' && body.reason.trim() && body.reason.trim().length <= 500) &&
+        !ObjectId.isValid(body.requestId)) {
+      return res.status(400).json({ message: 'Bekor qilish sababi yoki requestId ni to‘g‘ri kiriting.' });
     }
     const mijozId = Number(req.params.mijoz_id);
     const paymentId = new ObjectId(req.params.paymentId);
     const actor = res.locals.currentUser;
     const voidedAt = new Date(now());
-    const reason = body.reason.trim();
+    let reason = typeof body.reason === 'string' ? body.reason.trim() : null;
     const session = mongoClient.startSession();
     let updatedPayment;
     let updatedCustomer;
@@ -670,6 +688,24 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
         }
         if (previous.status === 'voided') {
           const error = new Error('To‘lov allaqachon bekor qilingan.'); error.status = 409; throw error;
+        }
+        if (previous.dailyPlanId) {
+          if (!ObjectId.isValid(body.requestId)) {
+            const error = new Error('Rejadagi to‘lov uchun bekor qilish so‘rovi kerak.'); error.status = 409; throw error;
+          }
+          const request = await paymentVoidRequests.findOne({ _id: new ObjectId(body.requestId),
+            paymentId, customerId: previous.customerId, status: 'pending' }, { session });
+          if (!request) { const error = new Error('Ochiq bekor qilish so‘rovi topilmadi.'); error.status = 404; throw error; }
+          reason = request.reason;
+          const approved = await paymentVoidRequests.updateOne({ _id: request._id, status: 'pending' },
+            { $set: { status: 'approved', reviewedAt: voidedAt, reviewedBy: actor._id } }, { session });
+          if (approved.matchedCount !== 1) { const error = new Error('So‘rov allaqachon ko‘rilgan.'); error.status = 409; throw error; }
+          const planUpdate = await dailyPlans.updateOne({ _id: previous.dailyPlanId,
+            payments: { $elemMatch: { paymentId, status: 'active' } } },
+          { $set: { 'payments.$.status': 'voided' }, $inc: { paymentCount: -1, totalAmount: -previous.amount } }, { session });
+          if (planUpdate.matchedCount !== 1) { const error = new Error('Rejadagi to‘lov mos kelmadi.'); error.status = 409; throw error; }
+        } else if (!reason) {
+          const error = new Error('Bekor qilish sababini kiriting.'); error.status = 400; throw error;
         }
         if (!Number.isSafeInteger(previous.amount) || previous.amount <= 0 ||
             !['initial', 'installment'].includes(previous.type) || !previous.customerId) {
@@ -709,6 +745,23 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
       logger.error('To‘lovni bekor qilishda xatolik:', error);
       return res.status(500).json({ message: 'Serverda xatolik yuz berdi.' });
     } finally { await session.endSession(); }
+  }
+  app.post('/customers/:mijoz_id/payments/:paymentId/void', authenticate, voidPaymentHandler);
+  app.post('/payment-void-requests/:id/approve', authenticate, async (req, res) => {
+    if (res.locals.currentUser.role !== 'super_admin') return res.status(403).json({ message: 'Ruxsat yo‘q.' });
+    if (!ObjectId.isValid(req.params.id) || req.body && Object.keys(req.body).length) {
+      return res.status(400).json({ message: 'So‘rov ID noto‘g‘ri.' });
+    }
+    try {
+      const request = await paymentVoidRequests.findOne({ _id: new ObjectId(req.params.id), status: 'pending' });
+      if (!request) return res.status(404).json({ message: 'Ochiq so‘rov topilmadi.' });
+      req.params = { mijoz_id: String(request.mijoz_id), paymentId: request.paymentId.toString() };
+      req.body = { requestId: request._id.toString() };
+      return voidPaymentHandler(req, res);
+    } catch (error) {
+      logger.error('Bekor qilish so‘rovini tasdiqlashda xatolik:', error);
+      return res.status(500).json({ message: 'Serverda xatolik yuz berdi.' });
+    }
   });
 
   app.get('/customers/:mijoz_id/audit', authenticate, async (req, res) => {

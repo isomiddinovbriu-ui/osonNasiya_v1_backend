@@ -3,7 +3,7 @@ const { publicRegion } = require('./regions.presenter');
 
 const REGION_CREATORS = new Set(['super_admin', 'sotuvchi']);
 
-function registerRegionRoutes(app, { regions, customers, authenticate, logger, now }) {
+function registerRegionRoutes(app, { regions, customers, dailyPlans, authenticate, logger, now }) {
   app.post('/regions', authenticate, async (req, res) => {
     if (!REGION_CREATORS.has(res.locals.currentUser.role)) {
       return res.status(403).json({ message: 'Bu amal uchun ruxsat yo‘q.' });
@@ -124,6 +124,9 @@ function registerRegionRoutes(app, { regions, customers, authenticate, logger, n
     try {
       if (await customers.countDocuments({ regionId: res.locals.region._id }, { limit: 1 })) {
         return res.status(409).json({ message: 'Bu hududga mijozlar biriktirilgan.' });
+      }
+      if (dailyPlans && await dailyPlans.countDocuments({ regionId: res.locals.region._id }, { limit: 1 })) {
+        return res.status(409).json({ message: 'Bu hududga kunlik rejalar biriktirilgan.' });
       }
       const filter = { _id: res.locals.region._id };
       if (res.locals.currentUser.role === 'sotuvchi') filter.createdBy = res.locals.currentUser._id;

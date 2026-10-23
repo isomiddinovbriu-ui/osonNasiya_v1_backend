@@ -13,6 +13,7 @@ function paymentSnapshot(payment) {
     amount: payment.amount,
     method: payment.method,
     receivedBy: payment.receivedBy?.toString() ?? null,
+    dailyPlanId: payment.dailyPlanId?.toString() ?? null,
     paidAt: payment.paidAt,
     forMonth: payment.forMonth ?? null,
     cardLast4: payment.cardLast4 ?? null,

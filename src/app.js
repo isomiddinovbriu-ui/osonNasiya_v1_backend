@@ -6,8 +6,10 @@ const { registerRegionRoutes } = require('./modules/regions/regions.api');
 const { registerCustomerRoutes } = require('./modules/customers/customers.api');
 const { registerContactRoutes } = require('./modules/contacts/contacts.api');
 const { registerWorklistRoutes } = require('./modules/collections/worklist.api');
+const { registerDailyPlanRoutes } = require('./modules/collections/daily-plans.api');
 const { registerCatalogRoutes } = require('./modules/catalog/catalog.api');
 const { registerPaymentRoutes } = require('./modules/payments/payments.api');
+const { registerVoidRequestRoutes } = require('./modules/payments/void-requests.api');
 const { registerReportRoutes } = require('./modules/reports/reports.api');
 const openapi = require('./openapi.json');
 
@@ -33,7 +35,7 @@ const docsHtml = `<!doctype html>
 </body>
 </html>`;
 
-function createApp({ users, loginRequests, refreshSessions, regions, customers, contacts, payments, paymentApps, paymentRequests, auditLogs, mongoClient, counters, productCategories, products, imageStorage, jwtSecret, logger = console, now = Date.now }) {
+function createApp({ users, loginRequests, refreshSessions, regions, customers, contacts, payments, paymentApps, paymentRequests, paymentVoidRequests, dailyPlans, auditLogs, mongoClient, counters, productCategories, products, imageStorage, jwtSecret, logger = console, now = Date.now }) {
   if (!users || !loginRequests || !refreshSessions || !regions || !customers || !payments || !paymentApps || !paymentRequests || !auditLogs || !mongoClient || !jwtSecret) throw new Error('users, loginRequests, refreshSessions, regions, customers, payments, paymentApps, paymentRequests, auditLogs, mongoClient va jwtSecret kerak.');
 
   const app = express();
@@ -59,11 +61,13 @@ function createApp({ users, loginRequests, refreshSessions, regions, customers, 
   const { authenticate, requireSuperAdmin } = createAuthMiddleware({ users, refreshSessions, jwtSecret, logger, now });
   registerAuthRoutes(app, { users, loginRequests, refreshSessions, jwtSecret, authenticate, logger, now });
   registerUserRoutes(app, { users, customers, authenticate, requireSuperAdmin, imageStorage, logger, now });
-  registerRegionRoutes(app, { regions, customers, authenticate, logger, now });
-  registerCustomerRoutes(app, { authenticate, users, customers, payments, paymentApps, paymentRequests, auditLogs, mongoClient, counters, regions, productCategories, products, jwtSecret, logger, now });
+  registerRegionRoutes(app, { regions, customers, dailyPlans, authenticate, logger, now });
+  registerCustomerRoutes(app, { authenticate, users, customers, payments, paymentApps, paymentRequests, paymentVoidRequests, dailyPlans, auditLogs, mongoClient, counters, regions, productCategories, products, jwtSecret, logger, now });
   if (contacts) registerContactRoutes(app, { authenticate, customers, contacts, payments, logger, now });
   registerWorklistRoutes(app, { authenticate, customers, logger, now });
+  if (dailyPlans) registerDailyPlanRoutes(app, { authenticate, dailyPlans, regions, customers, logger, now });
   registerPaymentRoutes(app, { authenticate, paymentApps, logger });
+  if (paymentVoidRequests && dailyPlans) registerVoidRequestRoutes(app, { authenticate, paymentVoidRequests, payments, dailyPlans, logger, now });
   registerReportRoutes(app, { authenticate, customers, payments, regions, users, logger, now });
   if (productCategories && products && imageStorage) {
     registerCatalogRoutes(app, { authenticate, productCategories, products, customers, counters, imageStorage, logger, now });

@@ -107,4 +107,4 @@ function csv(columns, rows) {
     ...rows.map((row) => columns.map(([, key]) => csvCell(row[key])).join(','))].join('\r\n')}\r\n`;
 }
 
-module.exports = { localDate, dateRange, overdueAmount, monthlyExpected, installmentDueDate, collectionWorkItem, csv };
+module.exports = { localDate, validDate, dateRange, overdueAmount, monthlyExpected, installmentDueDate, collectionWorkItem, csv };

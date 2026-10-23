@@ -13,7 +13,7 @@
     { "name": "Regions", "description": "Hududlar" },
     { "name": "Customers", "description": "Nasiya oluvchi mijozlar" },
     { "name": "Contacts", "description": "Aloqa tarixi, keyingi aloqalar va to'lov va'dalari" },
-    { "name": "Collections", "description": "Yig'uvchilarning kundalik ish ro'yxati" },
+    { "name": "Collections", "description": "Yig'uvchilarning kunlik hudud rejalari va ish ro'yxati" },
     { "name": "Payments", "description": "Mijoz to'lovlari" },
     { "name": "Reports", "description": "Tushum, savdo, qarz va CSV eksport; oylik qarz hisobotlari barcha tizim xodimlariga, qolganlari faqat super_admin ga" },
     { "name": "Catalog", "description": "Mahsulot guruhlari, bo'limlari va mahsulotlar" }
@@ -582,7 +582,7 @@
       "post": {
         "tags": ["Payments"],
         "summary": "Mijozning keyingi to'lovini yozish",
-        "description": "Har bir to'lov ixtiyoriy musbat butun so'm summasida yoziladi: oyma-oy belgilangan summa, ketma-ket oylar yoki termMonths muddati bilan cheklanmaydi. forMonth qaysi oy uchun berilganini bildiradi; paidAt esa haqiqiy to'lov sanasi. Summa qolgan qarzdan oshmasligi kerak. Idempotency-Key yuborilsa, shu xodimning bir xil mijozga bir xil JSON mazmunli takroriy so'rovi avvalgi 201 javobni qaytaradi va balansga qayta ta'sir qilmaydi. Bir kalitni boshqa so'rov uchun ishlatish 409 qaytaradi. Kalitsiz so'rovlar avvalgidek ishlaydi. To'lov, audit, balans va kalit yozuvi bitta MongoDB tranzaksiyasida saqlanadi.",
+        "description": "dailyPlanId majburiy: reja ochiq, bugungi Toshkent sanasida va mijoz hududiga tegishli bo'lishi kerak. Har bir to'lov ixtiyoriy musbat butun so'm summasida yoziladi; forMonth qaysi oy uchun berilganini bildiradi. Summa qolgan qarzdan oshmaydi. Idempotency-Key yuborilsa bir xil so'rov avvalgi 201 javobni qaytaradi. To'lov, reja, audit va balans bitta MongoDB tranzaksiyasida saqlanadi.",
         "security": [{ "bearerAuth": [] }],
         "parameters": [
           { "name": "mijoz_id", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
@@ -609,7 +609,7 @@
       "post": {
         "tags": ["Payments"],
         "summary": "To'lovni sabab bilan bekor qilish (faqat super_admin)",
-        "description": "To'lov o'chirilmaydi: status=voided bo'ladi, balans teskari yangilanadi va audit yozuvi shu MongoDB tranzaksiyasida saqlanadi. Qayta bekor qilish 409 qaytaradi. Boshlang'ich to'lov bekor qilinsa downPayment ham kamayadi.",
+        "description": "Kunlik rejaga bog'langan to'lov uchun pending bekor qilish so'rovi ID sini requestId sifatida yuboring. Eski rejaga bog'lanmagan to'lov uchun reason yuboring. Tasdiqda to'lov status=voided bo'ladi, mijoz balansi va rejaning faol jami summasi tranzaksiyada yangilanadi.",
         "security": [{ "bearerAuth": [] }],
         "parameters": [
           { "name": "mijoz_id", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
@@ -646,6 +646,18 @@
         }
       }
     },
+    "/daily-plans": {
+      "post": { "tags": ["Collections"], "summary": "Yig'uvchi hudud uchun kunlik reja ochadi", "security": [{ "bearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["regionId"], "properties": { "regionId": { "type": "string" }, "date": { "type": "string", "format": "date", "description": "Berilmasa bugun; o'tgan kun bo'lmaydi" } } } } } }, "responses": { "201": { "description": "Reja yaratildi", "content": { "application/json": { "schema": { "type": "object", "properties": { "plan": { "$ref": "#/components/schemas/DailyPlan" } } } } } } } },
+      "get": { "tags": ["Collections"], "summary": "Kunlik rejalar; yig'uvchi o'zinikini, admin barchasini ko'radi", "security": [{ "bearerAuth": [] }], "parameters": [{ "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } }, { "name": "regionId", "in": "query", "schema": { "type": "string" } }, { "name": "ownerId", "in": "query", "schema": { "type": "string" } }], "responses": { "200": { "description": "Rejalar", "content": { "application/json": { "schema": { "type": "object", "properties": { "plans": { "type": "array", "items": { "$ref": "#/components/schemas/DailyPlan" } } } } } } } } }
+    },
+    "/daily-plans/{id}": { "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "get": { "tags": ["Collections"], "summary": "Bitta reja", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "Reja", "content": { "application/json": { "schema": { "type": "object", "properties": { "plan": { "$ref": "#/components/schemas/DailyPlan" } } } } } } } } },
+    "/daily-plans/{id}/customers": { "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }, { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1 } }, { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100 } }], "get": { "tags": ["Collections"], "summary": "Reja hududidagi barcha mijozlar", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "Mijozlar" } } } },
+    "/daily-plans/{id}/close": { "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "post": { "tags": ["Collections"], "summary": "Rejani egasi shu kuni yopadi", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "Reja yopildi" } } } },
+    "/daily-plans/{id}/reopen": { "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "post": { "tags": ["Collections"], "summary": "Rejani egasi shu kuni qayta ochadi", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "Reja ochildi" } } } },
+    "/payments/{paymentId}/void-requests": { "parameters": [{ "name": "paymentId", "in": "path", "required": true, "schema": { "type": "string" } }], "post": { "tags": ["Payments"], "summary": "Yig'uvchi to'lovni bekor qilish so'rovini yuboradi", "security": [{ "bearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["reason"], "properties": { "reason": { "type": "string", "maxLength": 500 } } } } } }, "responses": { "201": { "description": "So'rov yaratildi" } } }, "get": { "tags": ["Payments"], "summary": "To'lov bekor qilish so'rovlari holati", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "So'rovlar" } } } },
+    "/payment-void-requests": { "get": { "tags": ["Payments"], "summary": "Admin bekor qilish so'rovlarini ko'radi", "security": [{ "bearerAuth": [] }], "parameters": [{ "name": "status", "in": "query", "schema": { "type": "string", "enum": ["pending", "approved", "rejected"], "default": "pending" } }], "responses": { "200": { "description": "So'rovlar" } } } },
+    "/payment-void-requests/{id}/reject": { "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "post": { "tags": ["Payments"], "summary": "Admin bekor qilish so'rovini rad etadi", "security": [{ "bearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["reason"], "properties": { "reason": { "type": "string", "maxLength": 500 } } } } } }, "responses": { "200": { "description": "Rad etildi" } } } },
+    "/payment-void-requests/{id}/approve": { "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "post": { "tags": ["Payments"], "summary": "Admin bekor qilish so'rovini tasdiqlaydi va to'lovni bekor qiladi", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "Tasdiqlandi", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/VoidPaymentResponse" } } } } } } },
     "/collections/worklist": {
       "get": {
         "tags": ["Collections"], "summary": "Muddati kelgan va kechikkan mijozlar ish ro'yxati",
@@ -972,7 +984,7 @@
       },
       "Payment": {
         "type": "object",
-        "required": ["id", "paymentId", "type", "amount", "method", "receivedBy", "paidAt", "forMonth", "cardLast4", "provider", "providerName", "status", "voidedAt", "voidedBy", "voidReason"],
+        "required": ["id", "paymentId", "type", "amount", "method", "receivedBy", "dailyPlanId", "paidAt", "forMonth", "cardLast4", "provider", "providerName", "status", "voidedAt", "voidedBy", "voidReason"],
         "properties": {
           "id": { "type": "string" },
           "paymentId": { "type": "string", "description": "To'lovning server yaratgan IDsi; id bilan bir xil" },
@@ -980,6 +992,7 @@
           "amount": { "type": "integer", "description": "So'mda" },
           "method": { "$ref": "#/components/schemas/PaymentMethod" },
           "receivedBy": { "type": "string", "description": "To'lovni yozgan xodim IDsi" },
+          "dailyPlanId": { "type": "string", "nullable": true, "description": "Kunlik reja IDsi; boshlang'ich va eski to'lovlarda null" },
           "paidAt": { "type": "string", "format": "date-time", "description": "To'lov qabul qilingan haqiqiy sana" },
           "forMonth": { "type": "string", "nullable": true, "pattern": "^(?!0000)[0-9]{4}-(0[1-9]|1[0-2])$", "description": "Qaysi oy uchun to'landi; boshlang'ich va eski oy ko'rsatilmagan to'lovlarda null", "example": "2026-06" },
           "cardLast4": { "type": "string", "nullable": true, "pattern": "^[0-9]{4}$", "description": "card yoki payment_app uchun karta raqamining faqat oxirgi 4 raqami; eski yozuvlarda null" },
@@ -1101,12 +1114,20 @@
         "total": { "type": "integer" }, "page": { "type": "integer" }, "limit": { "type": "integer" },
         "through": { "type": "string", "format": "date", "description": "Faqat follow-ups javobida" }
       } },
+      "DailyPlan": { "type": "object", "required": ["id", "regionId", "ownerId", "date", "status", "createdAt", "paymentCount", "totalAmount", "payments"], "properties": {
+        "id": { "type": "string" }, "regionId": { "type": "string" }, "ownerId": { "type": "string" },
+        "date": { "type": "string", "format": "date" }, "status": { "type": "string", "enum": ["open", "closed"] },
+        "createdAt": { "type": "string", "format": "date-time" }, "closedAt": { "type": "string", "format": "date-time", "nullable": true },
+        "paymentCount": { "type": "integer" }, "totalAmount": { "type": "integer" },
+        "payments": { "type": "array", "items": { "type": "object", "properties": { "paymentId": { "type": "string" }, "customerId": { "type": "string" }, "mijoz_id": { "type": "integer" }, "amount": { "type": "integer" }, "receivedBy": { "type": "string" }, "paidAt": { "type": "string", "format": "date-time" }, "status": { "type": "string", "enum": ["active", "voided"] } } } }
+      } },
       "AddPaymentRequest": {
         "type": "object",
-        "required": ["amount", "method"],
+        "required": ["amount", "method", "dailyPlanId"],
         "properties": {
           "amount": { "type": "integer", "minimum": 1, "description": "So'mda" },
           "method": { "$ref": "#/components/schemas/PaymentMethod" },
+          "dailyPlanId": { "type": "string", "pattern": "^[a-fA-F0-9]{24}$" },
           "forMonth": { "type": "string", "pattern": "^(?!0000)[0-9]{4}-(0[1-9]|1[0-2])$", "description": "To'lov qaysi oy uchun; yangi ilovalar yuborishi tavsiya etiladi", "example": "2026-06" },
           "cardNumber": { "type": "string", "description": "method=card yoki payment_app bo'lsa majburiy; saqlanmaydi, faqat oxirgi 4 raqam qoladi" },
           "provider": { "$ref": "#/components/schemas/PaymentProvider", "description": "method=payment_app bo'lsa majburiy" },
@@ -1122,7 +1143,7 @@
           "customer": { "$ref": "#/components/schemas/Customer" }
         }
       },
-      "VoidPaymentRequest": { "type": "object", "additionalProperties": false, "required": ["reason"], "properties": { "reason": { "type": "string", "minLength": 1, "maxLength": 500 } } },
+      "VoidPaymentRequest": { "type": "object", "additionalProperties": false, "description": "Rejadagi to'lovda requestId, eski to'lovda reason yuboring", "properties": { "reason": { "type": "string", "minLength": 1, "maxLength": 500 }, "requestId": { "type": "string", "pattern": "^[a-fA-F0-9]{24}$" } }, "oneOf": [{ "required": ["reason"] }, { "required": ["requestId"] }] },
       "AuditEntry": { "type": "object", "required": ["id", "action", "entityType", "entityId", "mijoz_id", "actorId", "actorRole", "createdAt", "before", "after"], "properties": {
         "id": { "type": "string" }, "action": { "type": "string", "enum": ["customer.created", "customer.updated", "customer.terms_updated", "payment.created", "payment.voided"] },
         "entityType": { "type": "string", "enum": ["customer", "payment"] }, "entityId": { "type": "string" },
