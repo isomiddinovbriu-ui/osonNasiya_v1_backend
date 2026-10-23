@@ -550,6 +550,26 @@
         }
       }
     },
+    "/contacts/call-list": {
+      "get": {
+        "tags": ["Contacts"], "summary": "Qo'ng'iroq qilinishi kerak bo'lgan mijozlar",
+        "description": "Har mijozning faqat oxirgi aloqa qaydidagi nextContactDate olinadi. Sana bo'lmagan qaydlar kirmaydi. due bugun va o'tgan kunlar, upcoming kelajakdagi kunlar, all barcha sanalar. Sana va outcome filtrlari oxirgi qaydga qo'llanadi.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["due", "upcoming", "all"], "default": "due" } },
+          { "name": "from", "in": "query", "schema": { "type": "string", "format": "date", "description": "Boshlang'ich sana, shu kun ham kiradi" } },
+          { "name": "to", "in": "query", "schema": { "type": "string", "format": "date", "description": "Oxirgi sana, shu kun ham kiradi" } },
+          { "name": "assignedTo", "in": "query", "schema": { "type": "string", "description": "Mas'ul xodim IDsi" } },
+          { "name": "outcome", "in": "query", "schema": { "type": "string", "enum": ["reached", "no_answer"] } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1, "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } }
+        ],
+        "responses": {
+          "200": { "description": "Qo'ng'iroqlar ro'yxati", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ContactCallListResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
     "/contacts/broken-promises": {
       "get": {
         "tags": ["Contacts"], "summary": "Muddati o'tgan bajarilmagan va'dalar",
@@ -1114,6 +1134,15 @@
         "total": { "type": "integer" }, "page": { "type": "integer" }, "limit": { "type": "integer" },
         "through": { "type": "string", "format": "date", "description": "Faqat follow-ups javobida" }
       } },
+      "ContactCallListResponse": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ContactTaskListResponse" },
+          { "type": "object", "required": ["status", "today"], "properties": {
+            "status": { "type": "string", "enum": ["due", "upcoming", "all"] },
+            "today": { "type": "string", "format": "date", "description": "Toshkent sanasi" }
+          } }
+        ]
+      },
       "DailyPlan": { "type": "object", "required": ["id", "regionId", "ownerId", "date", "status", "createdAt", "paymentCount", "totalAmount", "payments"], "properties": {
         "id": { "type": "string" }, "regionId": { "type": "string" }, "ownerId": { "type": "string" },
         "date": { "type": "string", "format": "date" }, "status": { "type": "string", "enum": ["open", "closed"] },

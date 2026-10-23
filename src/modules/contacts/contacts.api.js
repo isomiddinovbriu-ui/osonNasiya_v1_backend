@@ -159,6 +159,52 @@ function registerContactRoutes(app, { authenticate, customers, contacts, payment
     }
   });
 
+  app.get('/contacts/call-list', authenticate, async (req, res) => {
+    if (!ROLES.has(res.locals.currentUser.role)) return res.status(403).json({ message: 'Bu amal uchun ruxsat yo‘q.' });
+    let paging;
+    try {
+      paging = pagination(req.query, ['page', 'limit', 'status', 'from', 'to', 'assignedTo', 'outcome']);
+      if (req.query.status !== undefined && !['due', 'upcoming', 'all'].includes(req.query.status)) throw new Error('status noto‘g‘ri.');
+      if (req.query.from !== undefined && !validDay(req.query.from)) throw new Error('from YYYY-MM-DD formatida bo‘lishi kerak.');
+      if (req.query.to !== undefined && !validDay(req.query.to)) throw new Error('to YYYY-MM-DD formatida bo‘lishi kerak.');
+      if (req.query.from && req.query.to && req.query.from > req.query.to) throw new Error('from to sanasidan keyin bo‘lmasligi kerak.');
+      if (req.query.assignedTo !== undefined && !/^[0-9a-fA-F]{24}$/.test(req.query.assignedTo)) throw new Error('assignedTo noto‘g‘ri.');
+      if (req.query.outcome !== undefined && !['reached', 'no_answer'].includes(req.query.outcome)) throw new Error('outcome noto‘g‘ri.');
+    } catch (error) { return res.status(400).json({ message: error.message }); }
+    try {
+      const status = req.query.status ?? 'due';
+      const today = localDay(new Date(now()));
+      const dateFilter = { $type: 'string' };
+      if (status === 'due') dateFilter.$lte = today;
+      if (status === 'upcoming') dateFilter.$gt = today;
+      if (req.query.from) dateFilter.$gte = req.query.from;
+      if (req.query.to && (!dateFilter.$lte || req.query.to < dateFilter.$lte)) dateFilter.$lte = req.query.to;
+      const assigned = req.query.assignedTo
+        ? await customers.find({ assignedTo: new ObjectId(req.query.assignedTo) }).project({ _id: 1 }).toArray() : null;
+      const pipeline = [
+        ...(assigned ? [{ $match: { customerId: { $in: assigned.map((row) => row._id) } } }] : []),
+        { $sort: { contactedAt: -1, _id: -1 } },
+        { $group: { _id: '$customerId', contact: { $first: '$$ROOT' } } },
+        { $replaceRoot: { newRoot: '$contact' } },
+        { $match: { nextContactDate: dateFilter, ...(req.query.outcome ? { outcome: req.query.outcome } : {}) } },
+        { $sort: { nextContactDate: 1, contactedAt: 1, _id: 1 } },
+        { $facet: { count: [{ $count: 'total' }], rows: [{ $skip: (paging.page - 1) * paging.limit }, { $limit: paging.limit }] } },
+      ];
+      const [result] = await contacts.aggregate(pipeline).toArray();
+      const rows = result?.rows ?? [];
+      const customerRows = rows.length ? await customers.find({ _id: { $in: rows.map((row) => row.customerId) } })
+        .project({ name: 1, phoneNumber: 1, address: 1, assignedTo: 1 }).toArray() : [];
+      const byId = new Map(customerRows.map((row) => [row._id.toString(), row]));
+      const items = await Promise.all(rows.map(async (row) => ({ ...await publicContact(row, payments, new Date(now())),
+        customer: customerBrief(byId.get(row.customerId.toString())) })));
+      return res.json({ contacts: items, total: result?.count?.[0]?.total ?? 0,
+        page: paging.page, limit: paging.limit, status, today });
+    } catch (error) {
+      logger.error('Qo‘ng‘iroqlar ro‘yxatini olishda xatolik:', error);
+      return res.status(500).json({ message: 'Serverda xatolik yuz berdi.' });
+    }
+  });
+
   app.get('/contacts/broken-promises', authenticate, async (req, res) => {
     if (!ROLES.has(res.locals.currentUser.role)) return res.status(403).json({ message: 'Bu amal uchun ruxsat yo‘q.' });
     let paging;
