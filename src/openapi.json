@@ -1195,7 +1195,8 @@
       } },
       "YearlyDebtRow": { "type": "object", "required": ["mijoz_id", "name", "phoneNumber", "regionId", "monthlyAmount", "paidAmount", "debtAmount", "remainingBalance", "months"], "properties": {
         "mijoz_id": { "type": "integer" }, "name": { "type": "string" },
-        "phoneNumber": { "type": "string", "nullable": true }, "regionId": { "type": "string", "nullable": true },
+        "phoneNumber": { "type": "string", "nullable": true }, "productName": { "type": "string", "nullable": true },
+        "createdAt": { "type": "string", "format": "date-time", "nullable": true }, "regionId": { "type": "string", "nullable": true },
         "monthlyAmount": { "type": "integer", "description": "Yil uchun hisoblangan jami to'lov" },
         "paidAmount": { "type": "integer", "description": "Yil oylariga biriktirilgan jami to'lov" },
         "debtAmount": { "type": "integer", "description": "Yil oylaridagi to'lanmagan qismlar yig'indisi" },
@@ -1216,6 +1217,8 @@
         { "$ref": "#/components/schemas/MonthlyUnderpaidRow" },
         { "type": "object", "required": ["phoneNumber", "debtAmount", "remainingBalance"], "properties": {
           "phoneNumber": { "type": "string", "nullable": true },
+          "productName": { "type": "string", "nullable": true },
+          "createdAt": { "type": "string", "format": "date-time", "nullable": true },
           "debtAmount": { "type": "integer", "description": "Shu oy uchun to'lanmagan qism, so'mda" },
           "remainingBalance": { "type": "integer", "description": "Joriy jami qolgan qarz, so'mda" }
         } }

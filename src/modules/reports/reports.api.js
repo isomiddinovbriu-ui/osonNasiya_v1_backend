@@ -133,7 +133,7 @@ function registerReportRoutes(app, { authenticate, customers, payments, regions,
       const rows = [];
       let total = 0;
       const cursor = customers.find({ remainingBalance: { $gt: 0 }, createdAt: { $lt: toExclusive } },
-        { projection: { mijoz_id: 1, name: 1, phoneNumber: 1, regionId: 1, createdAt: 1,
+        { projection: { mijoz_id: 1, name: 1, phoneNumber: 1, productName: 1, regionId: 1, createdAt: 1,
           termMonths: 1, totalPrice: 1, downPayment: 1, totalPaid: 1, remainingBalance: 1 } })
         .sort({ mijoz_id: 1 });
       for await (const customer of cursor) {
@@ -158,7 +158,8 @@ function registerReportRoutes(app, { authenticate, customers, payments, regions,
         total++;
         if (total <= (page - 1) * limit || rows.length >= limit) continue;
         rows.push({ mijoz_id: customer.mijoz_id, name: customer.name,
-          phoneNumber: customer.phoneNumber ?? null, regionId: customer.regionId?.toString() ?? null,
+          phoneNumber: customer.phoneNumber ?? null, productName: customer.productName ?? null,
+          createdAt: customer.createdAt?.toISOString() ?? null, regionId: customer.regionId?.toString() ?? null,
           monthlyAmount, paidAmount, debtAmount, remainingBalance: customer.remainingBalance, months });
       }
       return sendReport(res, req.query.format, `yearly-debts-${year}-page-${page}.csv`,
@@ -234,7 +235,7 @@ function registerReportRoutes(app, { authenticate, customers, payments, regions,
       const rows = [];
       let total = 0;
       const cursor = customers.find({ remainingBalance: { $gt: 0 }, createdAt: { $lt: toExclusive } },
-        { projection: { mijoz_id: 1, name: 1, phoneNumber: 1, regionId: 1, createdAt: 1, termMonths: 1,
+        { projection: { mijoz_id: 1, name: 1, phoneNumber: 1, productName: 1, regionId: 1, createdAt: 1, termMonths: 1,
           totalPrice: 1, downPayment: 1, totalPaid: 1, remainingBalance: 1 } }).sort({ mijoz_id: 1 });
       for await (const customer of cursor) {
         const expected = monthlyExpected(customer, month);
@@ -247,6 +248,7 @@ function registerReportRoutes(app, { authenticate, customers, payments, regions,
         total++;
         if (total <= (page - 1) * limit || rows.length >= limit) continue;
         const row = { mijoz_id: customer.mijoz_id, name: customer.name,
+          productName: customer.productName ?? null, createdAt: customer.createdAt?.toISOString() ?? null,
           regionId: customer.regionId?.toString() ?? null, monthlyAmount: expected.amount,
           paidAmount, shortfall,
           status: paidAmount === 0 ? 'unpaid' : 'underpaid',
