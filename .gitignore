@@ -10,6 +10,7 @@ test/*
 !test/customers.test.js
 !test/contacts.test.js
 !test/reports.test.cjs
+!test/monthly-debts.test.js
 !test/demo-seed.test.cjs
 .env.example
 package-lock.json

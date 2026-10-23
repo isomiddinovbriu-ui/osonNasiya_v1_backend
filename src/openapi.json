@@ -722,6 +722,33 @@
         }
       }
     },
+    "/reports/monthly-debts": {
+      "get": {
+        "tags": ["Reports"], "summary": "Oy yoki yil va summa oralig'i bo'yicha qarzlar",
+        "description": "month berilsa tanlangan oy uchun hisoblangan to'lanmagan qism (debtAmount) qaytadi. month berilmasa yilning 12 oyi uchun shu qismlar mijoz bo'yicha yig'iladi va months tafsiloti qaytadi; summa filtri yillik debtAmount ga qo'llanadi. Ikkala summa chegarasi ham kiritiladi. Oylik qism totalPrice - downPayment ni termMonths ga teng taqsimlash orqali hisoblanadi. forMonth berilgan faol to'lov shu oyga, eski forMonth siz to'lov qabul qilingan Toshkent oyiga tegishli. Oldindan to'langan jami summa tegishli oygacha yetarli bo'lsa o'sha oyning qarzi 0. Bu joriy ma'lumotlardan hisoblanadi, tarixiy balans emas. CSV faqat so'ralgan sahifani beradi. Faqat super_admin.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "year", "in": "query", "required": true, "schema": { "type": "integer", "minimum": 1000, "maximum": 9999 } },
+          { "name": "month", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 12 }, "description": "Berilmasa yil bo'yicha natija qaytadi" },
+          { "name": "minAmount", "in": "query", "required": true, "schema": { "type": "integer", "minimum": 0 }, "description": "Eng kichik oylik qarz, so'mda" },
+          { "name": "maxAmount", "in": "query", "required": true, "schema": { "type": "integer", "minimum": 0 }, "description": "Eng katta oylik qarz, so'mda" },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1, "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } },
+          { "name": "format", "in": "query", "schema": { "type": "string", "enum": ["json", "csv"], "default": "json" } }
+        ],
+        "responses": {
+          "200": { "description": "Summa oralig'idagi oylik yoki yillik qarzlar; JSON yoki CSV sahifa", "content": {
+            "application/json": { "schema": { "oneOf": [
+              { "$ref": "#/components/schemas/MonthlyDebtsReport" },
+              { "$ref": "#/components/schemas/YearlyDebtsReport" }
+            ] } },
+            "text/csv": { "schema": { "type": "string" } }
+          } },
+          "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
     "/reports/monthly-underpaid": {
       "get": {
         "tags": ["Reports"], "summary": "Oylik to'lovni qilmagan yoki kam to'lagan mijozlar",
@@ -1160,6 +1187,39 @@
         "daysOverdue": { "type": "integer", "minimum": 0 }, "dueAmount": { "type": "integer", "description": "Bugungacha hisoblangan to'lanmagan ulush, penya emas" },
         "noInstallmentPaid": { "type": "boolean", "description": "Boshlang'ich to'lovdan keyingi to'lovlar 0 so'm" }
       } },
+      "YearlyDebtsReport": { "type": "object", "required": ["year", "minAmount", "maxAmount", "rows", "total", "page", "limit"], "properties": {
+        "year": { "type": "integer" },
+        "minAmount": { "type": "integer" }, "maxAmount": { "type": "integer" },
+        "rows": { "type": "array", "items": { "$ref": "#/components/schemas/YearlyDebtRow" } },
+        "total": { "type": "integer" }, "page": { "type": "integer" }, "limit": { "type": "integer" }
+      } },
+      "YearlyDebtRow": { "type": "object", "required": ["mijoz_id", "name", "phoneNumber", "regionId", "monthlyAmount", "paidAmount", "debtAmount", "remainingBalance", "months"], "properties": {
+        "mijoz_id": { "type": "integer" }, "name": { "type": "string" },
+        "phoneNumber": { "type": "string", "nullable": true }, "regionId": { "type": "string", "nullable": true },
+        "monthlyAmount": { "type": "integer", "description": "Yil uchun hisoblangan jami to'lov" },
+        "paidAmount": { "type": "integer", "description": "Yil oylariga biriktirilgan jami to'lov" },
+        "debtAmount": { "type": "integer", "description": "Yil oylaridagi to'lanmagan qismlar yig'indisi" },
+        "remainingBalance": { "type": "integer", "description": "Joriy jami qolgan qarz" },
+        "months": { "type": "array", "items": { "type": "object", "required": ["month", "monthlyAmount", "paidAmount", "debtAmount"], "properties": {
+          "month": { "type": "string", "description": "YYYY-MM" },
+          "monthlyAmount": { "type": "integer" }, "paidAmount": { "type": "integer" },
+          "debtAmount": { "type": "integer" }
+        } } }
+      } },
+      "MonthlyDebtsReport": { "type": "object", "required": ["month", "minAmount", "maxAmount", "rows", "total", "page", "limit"], "properties": {
+        "month": { "type": "string", "description": "YYYY-MM" },
+        "minAmount": { "type": "integer" }, "maxAmount": { "type": "integer" },
+        "rows": { "type": "array", "items": { "$ref": "#/components/schemas/MonthlyDebtRow" } },
+        "total": { "type": "integer" }, "page": { "type": "integer" }, "limit": { "type": "integer" }
+      } },
+      "MonthlyDebtRow": { "allOf": [
+        { "$ref": "#/components/schemas/MonthlyUnderpaidRow" },
+        { "type": "object", "required": ["phoneNumber", "debtAmount", "remainingBalance"], "properties": {
+          "phoneNumber": { "type": "string", "nullable": true },
+          "debtAmount": { "type": "integer", "description": "Shu oy uchun to'lanmagan qism, so'mda" },
+          "remainingBalance": { "type": "integer", "description": "Joriy jami qolgan qarz, so'mda" }
+        } }
+      ] },
       "MonthlyUnderpaidReport": { "type": "object", "required": ["month", "rows", "total", "page", "limit"], "properties": {
         "month": { "type": "string", "description": "YYYY-MM" },
         "rows": { "type": "array", "items": { "$ref": "#/components/schemas/MonthlyUnderpaidRow" } },

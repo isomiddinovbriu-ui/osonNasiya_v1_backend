@@ -110,14 +110,103 @@ function registerReportRoutes(app, { authenticate, customers, payments, regions,
     }
   });
 
-  app.get('/reports/monthly-underpaid', authenticate, requireAdmin, async (req, res) => {
+  async function annualDebts(req, res, { year, minAmount, maxAmount, page, limit }) {
+    try {
+      const fromDate = new Date(Date.UTC(year, 0, 1, -5));
+      const toExclusive = new Date(Date.UTC(year + 1, 0, 1, -5));
+      const totals = await payments.aggregate([
+        { $match: { type: 'installment', status: { $ne: 'voided' }, amount: { $gt: 0 }, $or: [
+          { forMonth: { $regex: `^${year}-(0[1-9]|1[0-2])$` } },
+          { forMonth: null, paidAt: { $gte: fromDate, $lt: toExclusive } },
+        ] } },
+        { $group: { _id: { customerId: '$customerId', month: { $ifNull: ['$forMonth',
+          { $dateToString: { format: '%Y-%m', date: '$paidAt', timezone: 'Asia/Tashkent' } }] } },
+          amount: { $sum: '$amount' } } },
+      ]).toArray();
+      const paidByCustomer = new Map();
+      for (const item of totals) {
+        if (!item._id?.customerId || !Number.isSafeInteger(item.amount)) continue;
+        const id = item._id.customerId.toString();
+        if (!paidByCustomer.has(id)) paidByCustomer.set(id, new Map());
+        paidByCustomer.get(id).set(item._id.month, item.amount);
+      }
+      const rows = [];
+      let total = 0;
+      const cursor = customers.find({ remainingBalance: { $gt: 0 }, createdAt: { $lt: toExclusive } },
+        { projection: { mijoz_id: 1, name: 1, phoneNumber: 1, regionId: 1, createdAt: 1,
+          termMonths: 1, totalPrice: 1, downPayment: 1, totalPaid: 1, remainingBalance: 1 } })
+        .sort({ mijoz_id: 1 });
+      for await (const customer of cursor) {
+        const months = [];
+        let monthlyAmount = 0;
+        let paidAmount = 0;
+        let debtAmount = 0;
+        for (let number = 1; number <= 12; number++) {
+          const month = `${year}-${String(number).padStart(2, '0')}`;
+          const expected = monthlyExpected(customer, month);
+          if (!expected || expected.amount <= 0) continue;
+          const paid = paidByCustomer.get(customer._id.toString())?.get(month) ?? 0;
+          const debt = paid >= expected.amount ||
+            customer.totalPaid - customer.downPayment >= expected.throughMonth
+            ? 0 : expected.amount - paid;
+          months.push({ month, monthlyAmount: expected.amount, paidAmount: paid, debtAmount: debt });
+          monthlyAmount += expected.amount;
+          paidAmount += paid;
+          debtAmount += debt;
+        }
+        if (!debtAmount || debtAmount < minAmount || debtAmount > maxAmount) continue;
+        total++;
+        if (total <= (page - 1) * limit || rows.length >= limit) continue;
+        rows.push({ mijoz_id: customer.mijoz_id, name: customer.name,
+          phoneNumber: customer.phoneNumber ?? null, regionId: customer.regionId?.toString() ?? null,
+          monthlyAmount, paidAmount, debtAmount, remainingBalance: customer.remainingBalance, months });
+      }
+      return sendReport(res, req.query.format, `yearly-debts-${year}-page-${page}.csv`,
+        [['mijoz_id', 'mijoz_id'], ['name', 'name'], ['phoneNumber', 'phoneNumber'],
+          ['regionId', 'regionId'], ['monthlyAmount', 'monthlyAmount'], ['paidAmount', 'paidAmount'],
+          ['debtAmount', 'debtAmount'], ['remainingBalance', 'remainingBalance']], rows,
+        { year, minAmount, maxAmount, rows, total, page, limit });
+    } catch (error) {
+      logger.error('Yillik qarz hisobotida xatolik:', error);
+      return res.status(500).json({ message: 'Serverda xatolik yuz berdi.' });
+    }
+  }
+
+  async function monthlyUnderpaid(req, res, filterByAmount = false) {
     let month;
     let page;
     let limit;
+    let minAmount;
+    let maxAmount;
     try {
-      reportQuery(req.query, ['month', 'page', 'limit', 'format']);
-      month = req.query.month ?? localDate(new Date(now())).slice(0, 7);
-      if (!/^[1-9]\d{3}-(0[1-9]|1[0-2])$/.test(month)) throw new Error('month YYYY-MM formatida bo‘lishi kerak.');
+      reportQuery(req.query, filterByAmount
+        ? ['year', 'month', 'minAmount', 'maxAmount', 'page', 'limit', 'format']
+        : ['month', 'page', 'limit', 'format']);
+      if (filterByAmount) {
+        if (!/^[1-9]\d{3}$/.test(req.query.year ?? '') ||
+            (req.query.month !== undefined &&
+              (!/^(?:[1-9]|0[1-9]|1[0-2])$/.test(req.query.month) || Number(req.query.month) > 12))) {
+          throw new Error('year yoki month noto‘g‘ri.');
+        }
+        month = req.query.month === undefined ? null :
+          `${req.query.year}-${String(Number(req.query.month)).padStart(2, '0')}`;
+        const amount = (key) => {
+          const value = req.query[key];
+          if (value === undefined) throw new Error(`${key} kerak.`);
+          if (!/^(?:0|[1-9]\d*)$/.test(value) || !Number.isSafeInteger(Number(value))) {
+            throw new Error(`${key} noto‘g‘ri.`);
+          }
+          return Number(value);
+        };
+        minAmount = amount('minAmount');
+        maxAmount = amount('maxAmount');
+        if (minAmount > maxAmount) throw new Error('minAmount maxAmount dan katta bo‘lmasligi kerak.');
+      } else {
+        month = req.query.month ?? localDate(new Date(now())).slice(0, 7);
+      }
+      if (month !== null && !/^[1-9]\d{3}-(0[1-9]|1[0-2])$/.test(month)) {
+        throw new Error('month YYYY-MM formatida bo‘lishi kerak.');
+      }
       const positive = (value, fallback, max) => {
         if (value === undefined) return fallback;
         if (!/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(Number(value)) || Number(value) > max) throw new Error('page yoki limit noto‘g‘ri.');
@@ -127,6 +216,9 @@ function registerReportRoutes(app, { authenticate, customers, payments, regions,
       limit = positive(req.query.limit, 20, 100);
       if (!Number.isSafeInteger((page - 1) * limit)) throw new Error('page juda katta.');
     } catch (error) { return res.status(400).json({ message: error.message }); }
+    if (filterByAmount && month === null) {
+      return annualDebts(req, res, { year: Number(req.query.year), minAmount, maxAmount, page, limit });
+    }
     try {
       const [year, monthNumber] = month.split('-').map(Number);
       const fromDate = new Date(Date.UTC(year, monthNumber - 1, 1, -5));
@@ -142,7 +234,7 @@ function registerReportRoutes(app, { authenticate, customers, payments, regions,
       const rows = [];
       let total = 0;
       const cursor = customers.find({ remainingBalance: { $gt: 0 }, createdAt: { $lt: toExclusive } },
-        { projection: { mijoz_id: 1, name: 1, regionId: 1, createdAt: 1, termMonths: 1,
+        { projection: { mijoz_id: 1, name: 1, phoneNumber: 1, regionId: 1, createdAt: 1, termMonths: 1,
           totalPrice: 1, downPayment: 1, totalPaid: 1, remainingBalance: 1 } }).sort({ mijoz_id: 1 });
       for await (const customer of cursor) {
         const expected = monthlyExpected(customer, month);
@@ -150,24 +242,36 @@ function registerReportRoutes(app, { authenticate, customers, payments, regions,
         const paidAmount = paidByCustomer.get(customer._id.toString()) ?? 0;
         if (paidAmount >= expected.amount ||
             customer.totalPaid - customer.downPayment >= expected.throughMonth) continue;
+        const shortfall = expected.amount - paidAmount;
+        if (filterByAmount && (shortfall < minAmount || shortfall > maxAmount)) continue;
         total++;
         if (total <= (page - 1) * limit || rows.length >= limit) continue;
-        rows.push({ mijoz_id: customer.mijoz_id, name: customer.name,
+        const row = { mijoz_id: customer.mijoz_id, name: customer.name,
           regionId: customer.regionId?.toString() ?? null, monthlyAmount: expected.amount,
-          paidAmount, shortfall: expected.amount - paidAmount,
+          paidAmount, shortfall,
           status: paidAmount === 0 ? 'unpaid' : 'underpaid',
-          message: paidAmount === 0 ? 'Oylik to‘lov qilinmadi' : 'Oylik to‘lovdan kam to‘landi' });
+          message: paidAmount === 0 ? 'Oylik to‘lov qilinmadi' : 'Oylik to‘lovdan kam to‘landi' };
+        if (filterByAmount) {
+          row.phoneNumber = customer.phoneNumber ?? null;
+          row.debtAmount = shortfall;
+          row.remainingBalance = customer.remainingBalance;
+        }
+        rows.push(row);
       }
-      return sendReport(res, req.query.format, `monthly-underpaid-${month}-page-${page}.csv`,
+      return sendReport(res, req.query.format, `${filterByAmount ? 'monthly-debts' : 'monthly-underpaid'}-${month}-page-${page}.csv`,
         [['mijoz_id', 'mijoz_id'], ['name', 'name'], ['regionId', 'regionId'],
           ['monthlyAmount', 'monthlyAmount'], ['paidAmount', 'paidAmount'], ['shortfall', 'shortfall'],
-          ['status', 'status'], ['message', 'message']], rows,
-        { month, rows, total, page, limit });
+          ['status', 'status'], ['message', 'message'],
+          ...(filterByAmount ? [['phoneNumber', 'phoneNumber'], ['debtAmount', 'debtAmount'], ['remainingBalance', 'remainingBalance']] : [])], rows,
+        { month, ...(filterByAmount && { minAmount, maxAmount }), rows, total, page, limit });
     } catch (error) {
       logger.error('Oylik kam to‘lov hisobotida xatolik:', error);
       return res.status(500).json({ message: 'Serverda xatolik yuz berdi.' });
     }
-  });
+  }
+
+  app.get('/reports/monthly-underpaid', authenticate, requireAdmin, (req, res) => monthlyUnderpaid(req, res));
+  app.get('/reports/monthly-debts', authenticate, requireAdmin, (req, res) => monthlyUnderpaid(req, res, true));
 }
 
 module.exports = { registerReportRoutes };
