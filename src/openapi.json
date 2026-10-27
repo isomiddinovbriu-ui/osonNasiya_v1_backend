@@ -602,7 +602,7 @@
       "post": {
         "tags": ["Payments"],
         "summary": "Mijozning keyingi to'lovini yozish",
-        "description": "dailyPlanId majburiy: reja ochiq, bugungi Toshkent sanasida va mijoz hududiga tegishli bo'lishi kerak. Har bir to'lov ixtiyoriy musbat butun so'm summasida yoziladi; forMonth qaysi oy uchun berilganini bildiradi. Summa qolgan qarzdan oshmaydi. Idempotency-Key yuborilsa bir xil so'rov avvalgi 201 javobni qaytaradi. To'lov, reja, audit va balans bitta MongoDB tranzaksiyasida saqlanadi.",
+        "description": "Oddiy to'lov API si; reja ID si yuborilmaydi va reja jami yangilanmaydi. Kunlik reja orqali to'lov uchun POST /daily-plans/{planId}/customers/{mijoz_id}/payments dan foydalaning. forMonth qaysi oy uchun berilganini bildiradi. Summa qolgan qarzdan oshmaydi. Idempotency-Key yuborilsa bir xil so'rov avvalgi 201 javobni qaytaradi.",
         "security": [{ "bearerAuth": [] }],
         "parameters": [
           { "name": "mijoz_id", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
@@ -672,6 +672,25 @@
     },
     "/daily-plans/{id}": { "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "get": { "tags": ["Collections"], "summary": "Bitta reja", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "Reja", "content": { "application/json": { "schema": { "type": "object", "properties": { "plan": { "$ref": "#/components/schemas/DailyPlan" } } } } } } } } },
     "/daily-plans/{id}/customers": { "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }, { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1 } }, { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100 } }], "get": { "tags": ["Collections"], "summary": "Reja hududidagi barcha mijozlar", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "Mijozlar" } } } },
+    "/daily-plans/{planId}/customers/{mijoz_id}/payments": {
+      "post": {
+        "tags": ["Payments", "Collections"],
+        "summary": "Kunlik reja orqali mijoz to'lovini yozish",
+        "description": "Body oddiy to'lov bilan bir xil. Reja ID si URLda beriladi. Reja ochiq, bugungi Toshkent sanasida va mijoz hududiga tegishli bo'lishi kerak. Idempotency-Key bir xil xodimning oddiy va reja orqali to'lovlarida takror ishlatilmaydi.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "planId", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[a-fA-F0-9]{24}$" } },
+          { "name": "mijoz_id", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "Idempotency-Key", "in": "header", "schema": { "type": "string", "minLength": 8, "maxLength": 128 } }
+        ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AddPaymentRequest" } } } },
+        "responses": {
+          "201": { "description": "Rejaga bog'langan to'lov yozildi", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AddPaymentResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" }, "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/CustomerNotFound" }, "409": { "$ref": "#/components/responses/Conflict" }
+        }
+      }
+    },
     "/daily-plans/{id}/close": { "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "post": { "tags": ["Collections"], "summary": "Rejani egasi shu kuni yopadi", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "Reja yopildi" } } } },
     "/daily-plans/{id}/reopen": { "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "post": { "tags": ["Collections"], "summary": "Rejani egasi shu kuni qayta ochadi", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "Reja ochildi" } } } },
     "/payments/{paymentId}/void-requests": { "parameters": [{ "name": "paymentId", "in": "path", "required": true, "schema": { "type": "string" } }], "post": { "tags": ["Payments"], "summary": "Yig'uvchi to'lovni bekor qilish so'rovini yuboradi", "security": [{ "bearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["reason"], "properties": { "reason": { "type": "string", "maxLength": 500 } } } } } }, "responses": { "201": { "description": "So'rov yaratildi" } } }, "get": { "tags": ["Payments"], "summary": "To'lov bekor qilish so'rovlari holati", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "So'rovlar" } } } },
@@ -1012,7 +1031,7 @@
           "amount": { "type": "integer", "description": "So'mda" },
           "method": { "$ref": "#/components/schemas/PaymentMethod" },
           "receivedBy": { "type": "string", "description": "To'lovni yozgan xodim IDsi" },
-          "dailyPlanId": { "type": "string", "nullable": true, "description": "Kunlik reja IDsi; boshlang'ich va eski to'lovlarda null" },
+          "dailyPlanId": { "type": "string", "nullable": true, "description": "Reja orqali to'lovda reja ID si; oddiy va boshlang'ich to'lovlarda null" },
           "paidAt": { "type": "string", "format": "date-time", "description": "To'lov qabul qilingan haqiqiy sana" },
           "forMonth": { "type": "string", "nullable": true, "pattern": "^(?!0000)[0-9]{4}-(0[1-9]|1[0-2])$", "description": "Qaysi oy uchun to'landi; boshlang'ich va eski oy ko'rsatilmagan to'lovlarda null", "example": "2026-06" },
           "cardLast4": { "type": "string", "nullable": true, "pattern": "^[0-9]{4}$", "description": "card yoki payment_app uchun karta raqamining faqat oxirgi 4 raqami; eski yozuvlarda null" },
@@ -1152,11 +1171,10 @@
       } },
       "AddPaymentRequest": {
         "type": "object",
-        "required": ["amount", "method", "dailyPlanId"],
+        "required": ["amount", "method"],
         "properties": {
           "amount": { "type": "integer", "minimum": 1, "description": "So'mda" },
           "method": { "$ref": "#/components/schemas/PaymentMethod" },
-          "dailyPlanId": { "type": "string", "pattern": "^[a-fA-F0-9]{24}$" },
           "forMonth": { "type": "string", "pattern": "^(?!0000)[0-9]{4}-(0[1-9]|1[0-2])$", "description": "To'lov qaysi oy uchun; yangi ilovalar yuborishi tavsiya etiladi", "example": "2026-06" },
           "cardNumber": { "type": "string", "description": "method=card yoki payment_app bo'lsa majburiy; saqlanmaydi, faqat oxirgi 4 raqam qoladi" },
           "provider": { "$ref": "#/components/schemas/PaymentProvider", "description": "method=payment_app bo'lsa majburiy" },

@@ -581,21 +581,25 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
     }
   });
 
-  app.post('/customers/:mijoz_id/payments', authenticate, async (req, res) => {
+  async function addPaymentHandler(req, res) {
     if (!CREATOR_ROLES.has(res.locals.currentUser.role)) return res.status(403).json({ message: 'Bu amal uchun ruxsat yo‘q.' });
     if (!validCustomerNumber(req.params.mijoz_id)) return res.status(400).json({ message: 'mijoz_id noto‘g‘ri.' });
     const idempotencyKey = req.headers['idempotency-key'];
     if (idempotencyKey !== undefined && !validIdempotencyKey(idempotencyKey)) {
       return res.status(400).json({ message: 'Idempotency-Key 8–128 belgili harf, raqam, nuqta, chiziq, pastki chiziq yoki ikki nuqtadan iborat bo‘lishi kerak.' });
     }
-    const { amount, method, forMonth, cardNumber, provider, providerName, dailyPlanId } = req.body || {};
+    const { amount, method, forMonth, cardNumber, provider, providerName } = req.body || {};
+    const dailyPlanId = req.params.planId;
     if (!Number.isSafeInteger(amount) || amount <= 0 ||
-        (forMonth !== undefined && !validPaymentMonth(forMonth)) || !ObjectId.isValid(dailyPlanId)) {
-      return res.status(400).json({ message: 'To‘lov summasi, usuli, forMonth (YYYY-MM) va dailyPlanId ni to‘g‘ri kiriting.' });
+        (forMonth !== undefined && !validPaymentMonth(forMonth)) ||
+        Object.hasOwn(req.body || {}, 'dailyPlanId') ||
+        (dailyPlanId !== undefined && !ObjectId.isValid(dailyPlanId))) {
+      return res.status(400).json({ message: 'To‘lov summasi, usuli, forMonth (YYYY-MM) va reja ID sini to‘g‘ri kiriting.' });
     }
     const actorId = res.locals.currentUser._id;
     const mijozId = Number(req.params.mijoz_id);
-    const requestHash = idempotencyKey ? paymentRequestHash(jwtSecret, mijozId, req.body) : null;
+    const requestHash = idempotencyKey ? paymentRequestHash(jwtSecret, mijozId,
+      dailyPlanId === undefined ? req.body : { ...req.body, dailyPlanId }) : null;
     const requestFilter = idempotencyKey ? { actorId, key: idempotencyKey } : null;
     function replay(existing) {
       if (existing.requestHash !== requestHash) return res.status(409).json({ message: 'Idempotency-Key boshqa so‘rov uchun ishlatilgan.' });
@@ -617,7 +621,7 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
         amount,
         method,
         receivedBy: res.locals.currentUser._id,
-        dailyPlanId: new ObjectId(dailyPlanId),
+        ...(dailyPlanId !== undefined && { dailyPlanId: new ObjectId(dailyPlanId) }),
         paidAt: new Date(now()),
         forMonth: forMonth ?? null,
         status: 'active',
@@ -645,20 +649,22 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
             error.status = customer ? 409 : 404;
             throw error;
           }
-          const plan = await dailyPlans.findOne({ _id: payment.dailyPlanId });
-          if (!plan) { const error = new Error('Kunlik reja topilmadi.'); error.status = 404; throw error; }
-          if (!plan.regionId.equals(updated.regionId)) {
-            const error = new Error('Mijoz boshqa hududdagi rejaga tegishli.'); error.status = 409; throw error;
-          }
-          const planUpdate = await step(() => dailyPlans.updateOne(
-            { _id: payment.dailyPlanId, date: localDate(payment.paidAt), status: 'open' },
-            { $push: { payments: { paymentId: payment._id, customerId: updated._id,
-              mijoz_id: updated.mijoz_id, amount, receivedBy: actorId, paidAt: payment.paidAt,
-              status: 'active' } }, $inc: { paymentCount: 1, totalAmount: amount } }),
-            () => dailyPlans.updateOne({ _id: payment.dailyPlanId, 'payments.paymentId': payment._id },
-              { $pull: { payments: { paymentId: payment._id } }, $inc: { paymentCount: -1, totalAmount: -amount } }));
-          if (planUpdate.matchedCount !== 1) {
-            const error = new Error('Reja yopilgan yoki bugungi kunga tegishli emas.'); error.status = 409; throw error;
+          if (payment.dailyPlanId) {
+            const plan = await dailyPlans.findOne({ _id: payment.dailyPlanId });
+            if (!plan) { const error = new Error('Kunlik reja topilmadi.'); error.status = 404; throw error; }
+            if (!plan.regionId.equals(updated.regionId)) {
+              const error = new Error('Mijoz boshqa hududdagi rejaga tegishli.'); error.status = 409; throw error;
+            }
+            const planUpdate = await step(() => dailyPlans.updateOne(
+              { _id: payment.dailyPlanId, date: localDate(payment.paidAt), status: 'open' },
+              { $push: { payments: { paymentId: payment._id, customerId: updated._id,
+                mijoz_id: updated.mijoz_id, amount, receivedBy: actorId, paidAt: payment.paidAt,
+                status: 'active' } }, $inc: { paymentCount: 1, totalAmount: amount } }),
+              () => dailyPlans.updateOne({ _id: payment.dailyPlanId, 'payments.paymentId': payment._id },
+                { $pull: { payments: { paymentId: payment._id } }, $inc: { paymentCount: -1, totalAmount: -amount } }));
+            if (planUpdate.matchedCount !== 1) {
+              const error = new Error('Reja yopilgan yoki bugungi kunga tegishli emas.'); error.status = 409; throw error;
+            }
           }
           await step(() => payments.insertOne({ ...payment, customerId: updated._id, mijoz_id: updated.mijoz_id }),
             () => payments.deleteOne({ _id: payment._id }));
@@ -689,7 +695,9 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
       logger.error('To‘lovni yozishda xatolik:', error);
       return res.status(500).json({ message: 'Serverda xatolik yuz berdi.' });
     }
-  });
+  }
+  app.post('/customers/:mijoz_id/payments', authenticate, addPaymentHandler);
+  app.post('/daily-plans/:planId/customers/:mijoz_id/payments', authenticate, addPaymentHandler);
 
   async function voidPaymentHandler(req, res) {
     if (res.locals.currentUser.role !== 'super_admin') return res.status(403).json({ message: 'Bu amal uchun ruxsat yo‘q.' });
