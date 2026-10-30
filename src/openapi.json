@@ -625,6 +625,27 @@
         }
       }
     },
+    "/customers/{mijoz_id}/payments/{paymentId}": {
+      "patch": {
+        "tags": ["Payments"],
+        "summary": "To'lovni tahrirlash",
+        "description": "Superadmin istalgan faol to'lovni, boshqa xodim faqat o'zi yozgan faol to'lovni tahrirlaydi. Xodim amount va method (shu jumladan karta/ilova tafsilotlari) ni, faqat superadmin esa qo'shimcha ravishda forMonth ni o'zgartiradi. Boshlang'ich to'lov summasi o'zgarsa downPayment ham yangilanadi. Rejaga bog'langan to'lov summasi o'zgarsa reja jami ham yangilanadi. card yoki payment_app usuli yuborilganda cardNumber qayta yuborilishi kerak. Bekor qilingan to'lov tahrirlanmaydi.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "mijoz_id", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "paymentId", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[a-fA-F0-9]{24}$" } }
+        ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdatePaymentRequest" } } } },
+        "responses": {
+          "200": { "description": "To'lov va balans yangilandi", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdatePaymentResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/CustomerNotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" }
+        }
+      }
+    },
     "/customers/{mijoz_id}/payments/{paymentId}/void": {
       "post": {
         "tags": ["Payments"],
@@ -1192,9 +1213,28 @@
           "customer": { "$ref": "#/components/schemas/Customer" }
         }
       },
+      "UpdatePaymentRequest": {
+        "type": "object", "minProperties": 1, "additionalProperties": false,
+        "properties": {
+          "amount": { "type": "integer", "minimum": 1, "description": "Yangi summa, so'mda" },
+          "method": { "$ref": "#/components/schemas/PaymentMethod" },
+          "forMonth": { "type": "string", "nullable": true, "pattern": "^(?!0000)[0-9]{4}-(0[1-9]|1[0-2])$", "description": "Faqat superadmin; null yuborilsa oy olib tashlanadi. Boshlang'ich to'lovga qo'llanmaydi." },
+          "cardNumber": { "type": "string", "description": "card yoki payment_app usuli/tafsilotlari o'zgarganda qayta yuboriladi" },
+          "provider": { "$ref": "#/components/schemas/PaymentProvider" },
+          "providerName": { "type": "string", "maxLength": 80, "description": "provider=other bo'lsa" }
+        }
+      },
+      "UpdatePaymentResponse": {
+        "type": "object", "required": ["payment", "customer", "audit"],
+        "properties": {
+          "payment": { "$ref": "#/components/schemas/Payment" },
+          "customer": { "$ref": "#/components/schemas/Customer" },
+          "audit": { "type": "object", "nullable": true, "allOf": [{ "$ref": "#/components/schemas/AuditEntry" }] }
+        }
+      },
       "VoidPaymentRequest": { "type": "object", "additionalProperties": false, "description": "Rejadagi to'lovda requestId, eski to'lovda reason yuboring", "properties": { "reason": { "type": "string", "minLength": 1, "maxLength": 500 }, "requestId": { "type": "string", "pattern": "^[a-fA-F0-9]{24}$" } }, "oneOf": [{ "required": ["reason"] }, { "required": ["requestId"] }] },
       "AuditEntry": { "type": "object", "required": ["id", "action", "entityType", "entityId", "mijoz_id", "actorId", "actorRole", "createdAt", "before", "after"], "properties": {
-        "id": { "type": "string" }, "action": { "type": "string", "enum": ["customer.created", "customer.updated", "customer.terms_updated", "payment.created", "payment.voided"] },
+        "id": { "type": "string" }, "action": { "type": "string", "enum": ["customer.created", "customer.updated", "customer.terms_updated", "payment.created", "payment.updated", "payment.voided"] },
         "entityType": { "type": "string", "enum": ["customer", "payment"] }, "entityId": { "type": "string" },
         "mijoz_id": { "type": "integer" }, "actorId": { "type": "string" }, "actorRole": { "type": "string" },
         "actorName": { "type": "string", "nullable": true }, "createdAt": { "type": "string", "format": "date-time" },

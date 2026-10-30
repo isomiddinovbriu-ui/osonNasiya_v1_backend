@@ -709,6 +709,136 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
   app.post('/customers/:mijoz_id/payments', authenticate, addPaymentHandler);
   app.post('/daily-plans/:planId/customers/:mijoz_id/payments', authenticate, addPaymentHandler);
 
+  app.patch('/customers/:mijoz_id/payments/:paymentId', authenticate, async (req, res) => {
+    const actor = res.locals.currentUser;
+    if (!CREATOR_ROLES.has(actor.role)) return res.status(403).json({ message: 'Bu amal uchun ruxsat yo‘q.' });
+    if (!validCustomerNumber(req.params.mijoz_id) || !ObjectId.isValid(req.params.paymentId)) {
+      return res.status(400).json({ message: 'Mijoz yoki to‘lov ID noto‘g‘ri.' });
+    }
+    const body = req.body;
+    const allowed = new Set(['amount', 'method', 'forMonth', 'cardNumber', 'provider', 'providerName']);
+    if (!body || typeof body !== 'object' || Array.isArray(body) || !Object.keys(body).length ||
+        Object.keys(body).some((key) => !allowed.has(key)) ||
+        ('amount' in body && (!Number.isSafeInteger(body.amount) || body.amount <= 0)) ||
+        ('forMonth' in body && body.forMonth !== null && !validPaymentMonth(body.forMonth))) {
+      return res.status(400).json({ message: 'To‘lov summasi, usuli yoki oyi noto‘g‘ri.' });
+    }
+    if ('forMonth' in body && actor.role !== 'super_admin') {
+      return res.status(403).json({ message: 'To‘lov oyini faqat super_admin o‘zgartiradi.' });
+    }
+    const paymentId = new ObjectId(req.params.paymentId);
+    const mijozId = Number(req.params.mijoz_id);
+    let updatedPayment;
+    let updatedCustomer;
+    let audit = null;
+    try {
+      await withRollback(async (step) => {
+        const previous = await payments.findOne({ _id: paymentId, mijoz_id: mijozId });
+        if (!previous) { const error = new Error('To‘lov topilmadi.'); error.status = 404; throw error; }
+        if (previous.receivedBy?.toString() !== actor._id.toString() && actor.role !== 'super_admin') {
+          const error = new Error('Faqat o‘zingiz yozgan to‘lovni tahrirlay olasiz.'); error.status = 403; throw error;
+        }
+        if (previous.status === 'voided') {
+          const error = new Error('Bekor qilingan to‘lov tahrirlanmaydi.'); error.status = 409; throw error;
+        }
+        if ('forMonth' in body && previous.type === 'initial') {
+          const error = new Error('Boshlang‘ich to‘lov uchun oy kiritilmaydi.'); error.status = 400; throw error;
+        }
+        const customer = await customers.findOne({ _id: previous.customerId, mijoz_id: mijozId });
+        if (!customer) { const error = new Error('Mijoz topilmadi.'); error.status = 404; throw error; }
+        const amount = body.amount ?? previous.amount;
+        const delta = amount - previous.amount;
+        const nextTotalPaid = customer.totalPaid + delta;
+        const nextRemainingBalance = customer.remainingBalance - delta;
+        const nextDownPayment = customer.downPayment + (previous.type === 'initial' ? delta : 0);
+        if (!Number.isSafeInteger(delta) || !Number.isSafeInteger(nextTotalPaid) ||
+            !Number.isSafeInteger(nextRemainingBalance) || !Number.isSafeInteger(nextDownPayment) ||
+            nextTotalPaid < 0 || nextRemainingBalance < 0 || nextDownPayment < 0 ||
+            nextDownPayment > customer.totalPrice || nextTotalPaid > customer.totalPrice) {
+          const error = new Error('Yangi summa mijozning qolgan qarzi yoki to‘langan summasiga mos emas.');
+          error.status = 409; throw error;
+        }
+        const detailsChanged = ['method', 'cardNumber', 'provider', 'providerName'].some((key) => key in body);
+        let details = {};
+        if (detailsChanged) {
+          try { details = await paymentDetails({ method: body.method ?? previous.method,
+            cardNumber: body.cardNumber, provider: body.provider, providerName: body.providerName }, paymentApps); }
+          catch (error) { error.status = 400; throw error; }
+        }
+        const changes = {
+          ...(delta && { amount }),
+          ...(detailsChanged && { method: body.method ?? previous.method, ...details }),
+          ...('forMonth' in body && { forMonth: body.forMonth }),
+        };
+        if (Object.entries(changes).every(([key, value]) => value === (previous[key] ?? null))) {
+          updatedPayment = previous;
+          updatedCustomer = customer;
+          return;
+        }
+        const changedAt = new Date(now());
+        const revision = previous.revision ?? 0;
+        const oldMetadata = restoreMetadata(previous, ['updatedAt', 'updatedBy']);
+        updatedPayment = await step(() => payments.findOneAndUpdate(
+          { _id: paymentId, mijoz_id: mijozId, status: { $ne: 'voided' },
+            revision: Object.hasOwn(previous, 'revision') ? revision : { $exists: false } },
+          { $set: { ...changes, updatedAt: changedAt, updatedBy: actor._id }, $inc: { revision: 1 } },
+          { returnDocument: 'after' },
+        ), () => payments.updateOne({ _id: paymentId, revision: revision + 1, updatedAt: changedAt },
+          { $set: { ...Object.fromEntries(Object.keys(changes).filter((key) => Object.hasOwn(previous, key))
+            .map((key) => [key, previous[key]])), ...oldMetadata.$set },
+          $unset: { ...Object.fromEntries(Object.keys(changes).filter((key) => !Object.hasOwn(previous, key))
+            .map((key) => [key, ''])), ...oldMetadata.$unset,
+            ...(!Object.hasOwn(previous, 'revision') && { revision: '' }) },
+          ...(Object.hasOwn(previous, 'revision') && { $inc: { revision: -1 } }) }));
+        if (!updatedPayment) {
+          const error = new Error('To‘lov bir vaqtda o‘zgartirilgan yoki bekor qilingan.'); error.status = 409; throw error;
+        }
+        if (delta) {
+          updatedCustomer = await step(() => customers.findOneAndUpdate(
+            { _id: customer._id, mijoz_id: mijozId, totalPrice: customer.totalPrice,
+              totalPaid: customer.totalPaid, remainingBalance: customer.remainingBalance,
+              downPayment: customer.downPayment },
+            { $inc: { totalPaid: delta, remainingBalance: -delta,
+              ...(previous.type === 'initial' && { downPayment: delta }) },
+            $set: { updatedAt: changedAt } }, { returnDocument: 'after' }),
+          () => customers.updateOne({ _id: customer._id, updatedAt: changedAt,
+            totalPaid: nextTotalPaid, remainingBalance: nextRemainingBalance,
+            downPayment: nextDownPayment },
+          { $inc: { totalPaid: -delta, remainingBalance: delta,
+            ...(previous.type === 'initial' && { downPayment: -delta }) },
+          ...restoreMetadata(customer) }));
+          if (!updatedCustomer) {
+            const error = new Error('Mijoz balansi bir vaqtda o‘zgartirilgan.'); error.status = 409; throw error;
+          }
+        } else updatedCustomer = customer;
+        if (delta && previous.dailyPlanId) {
+          const planUpdate = await step(() => dailyPlans.updateOne(
+            { _id: previous.dailyPlanId, payments: { $elemMatch: { paymentId, status: 'active', amount: previous.amount } } },
+            { $set: { 'payments.$.amount': amount }, $inc: { totalAmount: delta } }),
+          () => dailyPlans.updateOne(
+            { _id: previous.dailyPlanId, payments: { $elemMatch: { paymentId, status: 'active', amount } } },
+            { $set: { 'payments.$.amount': previous.amount }, $inc: { totalAmount: -delta } }));
+          if (planUpdate.matchedCount !== 1) {
+            const error = new Error('Rejadagi to‘lov mos kelmadi.'); error.status = 409; throw error;
+          }
+        }
+        audit = auditEntry({ action: 'payment.updated', customer: updatedCustomer, payment: updatedPayment,
+          actor, createdAt: changedAt,
+          before: { payment: paymentSnapshot(previous), balance: balanceSnapshot(customer) },
+          after: { payment: paymentSnapshot(updatedPayment), balance: balanceSnapshot(updatedCustomer) } });
+        audit._id = new ObjectId();
+        await step(() => auditLogs.insertOne(audit), () => auditLogs.deleteOne({ _id: audit._id }));
+      }, logger);
+      const hydrated = (await withPayments([updatedCustomer]))[0];
+      return res.json({ payment: publicCustomer(hydrated).payments.find((item) => item.paymentId === paymentId.toString()),
+        customer: publicCustomer(hydrated), audit: audit ? publicAudit(audit) : null });
+    } catch (error) {
+      if (error.status) return res.status(error.status).json({ message: error.message });
+      logger.error('To‘lovni tahrirlashda xatolik:', error);
+      return res.status(500).json({ message: 'Serverda xatolik yuz berdi.' });
+    }
+  });
+
   async function voidPaymentHandler(req, res) {
     if (res.locals.currentUser.role !== 'super_admin') return res.status(403).json({ message: 'Bu amal uchun ruxsat yo‘q.' });
     if (!validCustomerNumber(req.params.mijoz_id) || !ObjectId.isValid(req.params.paymentId)) {
@@ -774,7 +904,8 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
           const error = new Error('To‘lov ma’lumotlari to‘g‘ri emas.'); error.status = 409; throw error;
         }
         updatedPayment = await step(() => payments.findOneAndUpdate(
-          { _id: paymentId, mijoz_id: mijozId, status: { $ne: 'voided' } },
+          { _id: paymentId, mijoz_id: mijozId, status: { $ne: 'voided' },
+            revision: Object.hasOwn(previous, 'revision') ? previous.revision : { $exists: false } },
           { $set: { status: 'voided', voidedAt, voidedBy: actor._id, voidReason: reason } },
           { returnDocument: 'after' },
         ), () => updatedPayment && payments.updateOne({ _id: paymentId, status: 'voided', voidedAt },
