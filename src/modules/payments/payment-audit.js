@@ -16,6 +16,7 @@ function paymentSnapshot(payment) {
     dailyPlanId: payment.dailyPlanId?.toString() ?? null,
     paidAt: payment.paidAt,
     forMonth: payment.forMonth ?? null,
+    allocations: payment.allocations ?? [],
     cardLast4: payment.cardLast4 ?? null,
     provider: payment.provider ?? null,
     providerName: payment.providerName ?? null,

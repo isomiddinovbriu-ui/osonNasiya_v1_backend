@@ -16,6 +16,7 @@
     { "name": "Collections", "description": "Yig'uvchilarning kunlik hudud rejalari va ish ro'yxati" },
     { "name": "Payments", "description": "Mijoz to'lovlari" },
     { "name": "Reports", "description": "Tushum, savdo, qarz va CSV eksport; oylik qarz hisobotlari barcha tizim xodimlariga, qolganlari faqat super_admin ga" },
+    { "name": "Dashboard", "description": "Xodim savdosi va shaxsan qabul qilgan to'lovlar statistikasi" },
     { "name": "Catalog", "description": "Mahsulot guruhlari, bo'limlari va mahsulotlar" }
   ],
   "paths": {
@@ -736,6 +737,34 @@
         }
       }
     },
+    "/dashboard/sales": {
+      "get": {
+        "tags": ["Dashboard"], "summary": "Sotuvchi yaratgan savdolar statistikasi",
+        "description": "Xodim faqat o'z createdBy savdolarini ko'radi. Admin createdBy va regionId bilan filtrlaydi. Oylik muddat savdo sanasidan keyingi oyning shu kuni hisoblanadi. Reja qoldig'i hozirgi faol to'lovlar asosida hisoblanadi: forMonth ko'rsatilgan to'lov tanlangan oy va undan keyingi oylarni qoplaydi; ortiqcha summa keyingi oyga o'tadi. forMonth bo'lmagan to'lov eng eski qoplanmagan oydan boshlanadi. paidAmount paidAt sanasiga qaraydi va voided to'lovlarni olmaydi.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "month", "in": "query", "schema": { "type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$" } },
+          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "createdBy", "in": "query", "description": "Faqat super_admin", "schema": { "type": "string" } },
+          { "name": "regionId", "in": "query", "description": "Faqat super_admin", "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Savdo statistikasi", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DashboardSales" } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "$ref": "#/components/responses/Forbidden" } }
+      }
+    },
+    "/dashboard/collections": {
+      "get": {
+        "tags": ["Dashboard"], "summary": "Xodim shaxsan qabul qilgan pul statistikasi",
+        "description": "payments.receivedBy va paidAt bo'yicha; voided to'lovlar kirmaydi. Hudud filtri mijozning joriy regionId maydoniga qaraydi. Xodim faqat o'z to'lovlarini ko'radi.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "month", "in": "query", "schema": { "type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$" } },
+          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "receivedBy", "in": "query", "description": "Faqat super_admin", "schema": { "type": "string" } },
+          { "name": "regionId", "in": "query", "description": "Faqat super_admin", "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Qabul qilingan to'lovlar", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DashboardCollections" } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "$ref": "#/components/responses/Forbidden" } }
+      }
+    },
     "/reports/revenue": {
       "get": {
         "tags": ["Reports"], "summary": "Kunlik yoki oylik tushum",
@@ -781,7 +810,7 @@
     "/reports/debt": {
       "get": {
         "tags": ["Reports"], "summary": "Joriy va kechikkan qarz",
-        "description": "Joriy remainingBalance yig'indisi va taxminiy kechikkan qism. Moliyalashtirilgan summa (totalPrice - downPayment) termMonths oyga teng taqsimlanadi; birinchi ulush savdodan 1 oy keyin to'lanishi kerak deb olinadi. Barcha keyingi to'lovlar eng eski majburiyatni kamaytiradi, forMonth bo'yicha ajratilmaydi. Shartnoma grafigi saqlanmaganligi uchun overdueDebt hisoblangan ko'rsatkichdir. Noto'g'ri/eski ma'lumotlar unclassifiedDebt ga ajratiladi. Faqat joriy holat; tarixiy sana qabul qilinmaydi. Faqat super_admin.",
+        "description": "Joriy remainingBalance yig'indisi va muddati o'tgan oyliklarning qoplanmagan qismi. Moliyalashtirilgan summa (totalPrice - downPayment) termMonths oyga teng taqsimlanadi; birinchi ulush savdodan 1 oy keyin to'lanishi kerak. forMonth ko'rsatilgan to'lov tanlangan va keyingi oylarni, forMonth bo'lmagan to'lov eng eski ochiq oyni qoplaydi. Noto'g'ri/eski ma'lumotlar unclassifiedDebt ga ajratiladi. Faqat joriy holat; tarixiy sana qabul qilinmaydi. Faqat super_admin.",
         "security": [{ "bearerAuth": [] }],
         "parameters": [{ "name": "format", "in": "query", "schema": { "type": "string", "enum": ["json", "csv"], "default": "json" } }],
         "responses": {
@@ -797,7 +826,7 @@
     "/reports/monthly-debts": {
       "get": {
         "tags": ["Reports"], "summary": "Oy yoki yil va summa oralig'i bo'yicha qarzlar",
-        "description": "month berilsa tanlangan oy uchun hisoblangan to'lanmagan qism (debtAmount) qaytadi. month berilmasa yilning 12 oyi uchun shu qismlar mijoz bo'yicha yig'iladi va months tafsiloti qaytadi; summa filtri yillik debtAmount ga qo'llanadi. Ikkala summa chegarasi ham kiritiladi. Oylik qism totalPrice - downPayment ni termMonths ga teng taqsimlash orqali hisoblanadi. forMonth berilgan faol to'lov shu oyga, eski forMonth siz to'lov qabul qilingan Toshkent oyiga tegishli. Oldindan to'langan jami summa tegishli oygacha yetarli bo'lsa o'sha oyning qarzi 0. Bu joriy ma'lumotlardan hisoblanadi, tarixiy balans emas. CSV faqat so'ralgan sahifani beradi. Barcha tizim xodimlari uchun.",
+        "description": "month berilsa tanlangan oy uchun hisoblangan to'lanmagan qism (debtAmount) qaytadi. month berilmasa yilning 12 oyi bo'yicha qismlar va yillik jami qaytadi. Oylik reja totalPrice - downPayment ni termMonths oyga teng taqsimlaydi. paidAmount shu oy rejasiga qo'llangan to'lovlar summasi: forMonth tanlangan oydan, forMonth yo'q to'lov eng eski ochiq oydan boshlanadi; ortiqcha pul keyingi oyga o'tadi. Bu joriy ma'lumotlardan hisoblanadi, tarixiy balans emas. CSV faqat so'ralgan sahifani beradi. Barcha tizim xodimlari uchun.",
         "security": [{ "bearerAuth": [] }],
         "parameters": [
           { "name": "year", "in": "query", "required": true, "schema": { "type": "integer", "minimum": 1000, "maximum": 9999 } },
@@ -824,7 +853,7 @@
     "/reports/monthly-underpaid": {
       "get": {
         "tags": ["Reports"], "summary": "Oylik to'lovni qilmagan yoki kam to'lagan mijozlar",
-        "description": "Belgilangan oy uchun 0 so'm to'laganlar unpaid, 0 dan ko'p lekin hisoblangan oylik summadan kam to'laganlar underpaid bo'ladi; shu oygacha jami oldindan to'langan summa yetarli bo'lsa kiritilmaydi. forMonth berilgan to'lov shu oyga, eski forMonth siz to'lov qabul qilingan Toshkent oyiga yoziladi. Bekor qilingan to'lovlar hisobga olinmaydi. Hech qanday penya qo'shilmaydi. CSV faqat so'ralgan sahifani eksport qiladi. Barcha tizim xodimlari uchun.",
+        "description": "Belgilangan oy uchun rejasiga qo'llangan summa 0 bo'lsa unpaid, 0 dan ko'p lekin oylikdan kam bo'lsa underpaid. paidAmount haqiqiy paidAt oyi tushumi emas, shu oy rejasiga taqsimlangan kredit. forMonth ko'rsatilgan to'lov tanlangan va keyingi oylarni, forMonth yo'q to'lov eng eski ochiq oyni qoplaydi. Bekor qilingan to'lovlar kirmaydi. Hech qanday penya yo'q. CSV faqat so'ralgan sahifani chiqaradi. Barcha tizim xodimlari uchun.",
         "security": [{ "bearerAuth": [] }],
         "parameters": [
           { "name": "month", "in": "query", "schema": { "type": "string", "pattern": "^[1-9][0-9]{3}-(0[1-9]|1[0-2])$", "description": "YYYY-MM; berilmasa Toshkentdagi joriy oy" } },
@@ -890,6 +919,10 @@
       }
     },
     "schemas": {
+      "DashboardPeriod": { "type": "object", "required": ["dueRemainingAmount", "dueCustomerCount", "paidAmount", "paidCustomerCount"], "properties": { "dueRemainingAmount": { "type": "integer" }, "dueCustomerCount": { "type": "integer" }, "paidAmount": { "type": "integer" }, "paidCustomerCount": { "type": "integer" } } },
+      "DashboardSales": { "type": "object", "required": ["scope", "asOfDate", "timezone", "soldAmount", "salesCount", "fullyPaidCount", "remainingAmount", "remainingCustomerCount", "month", "today"], "properties": { "scope": { "type": "string", "enum": ["all", "me", "filtered"] }, "asOfDate": { "type": "string", "format": "date" }, "timezone": { "type": "string", "enum": ["Asia/Tashkent"] }, "soldAmount": { "type": "integer" }, "salesCount": { "type": "integer" }, "fullyPaidCount": { "type": "integer" }, "remainingAmount": { "type": "integer" }, "remainingCustomerCount": { "type": "integer" }, "month": { "allOf": [{ "$ref": "#/components/schemas/DashboardPeriod" }, { "type": "object", "required": ["month"], "properties": { "month": { "type": "string" } } }] }, "today": { "allOf": [{ "$ref": "#/components/schemas/DashboardPeriod" }, { "type": "object", "required": ["date"], "properties": { "date": { "type": "string", "format": "date" } } }] } } },
+      "DashboardCollectionPeriod": { "type": "object", "required": ["amount", "paymentCount", "customerCount", "initialAmount", "installmentAmount"], "properties": { "amount": { "type": "integer" }, "paymentCount": { "type": "integer" }, "customerCount": { "type": "integer" }, "initialAmount": { "type": "integer" }, "installmentAmount": { "type": "integer" } } },
+      "DashboardCollections": { "type": "object", "required": ["scope", "timezone", "allTime", "month", "today"], "properties": { "scope": { "type": "string", "enum": ["all", "me", "filtered"] }, "timezone": { "type": "string", "enum": ["Asia/Tashkent"] }, "allTime": { "$ref": "#/components/schemas/DashboardCollectionPeriod" }, "month": { "allOf": [{ "$ref": "#/components/schemas/DashboardCollectionPeriod" }, { "type": "object", "required": ["month"], "properties": { "month": { "type": "string" } } }] }, "today": { "allOf": [{ "$ref": "#/components/schemas/DashboardCollectionPeriod" }, { "type": "object", "required": ["date"], "properties": { "date": { "type": "string", "format": "date" } } }] } } },
       "CreateCategoryRequest": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string", "maxLength": 100, "example": "Texnika" }, "parentId": { "type": "string", "nullable": true, "description": "Texnika IDsi berilsa Telefon kabi bo'lim yaratiladi" } } },
       "Category": { "type": "object", "required": ["id", "name", "parentId", "createdBy", "createdAt"], "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "parentId": { "type": "string", "nullable": true }, "createdBy": { "type": "string" }, "createdAt": { "type": "string", "format": "date-time" }, "updatedAt": { "type": "string", "format": "date-time", "nullable": true } } },
       "CategoryResponse": { "type": "object", "properties": { "category": { "$ref": "#/components/schemas/Category" } } },
@@ -1044,7 +1077,7 @@
       },
       "Payment": {
         "type": "object",
-        "required": ["id", "paymentId", "type", "amount", "remainingBalanceAfter", "method", "receivedBy", "dailyPlanId", "paidAt", "forMonth", "cardLast4", "provider", "providerName", "status", "voidedAt", "voidedBy", "voidReason"],
+        "required": ["id", "paymentId", "type", "amount", "remainingBalanceAfter", "method", "receivedBy", "dailyPlanId", "paidAt", "forMonth", "allocations", "cardLast4", "provider", "providerName", "status", "voidedAt", "voidedBy", "voidReason"],
         "properties": {
           "id": { "type": "string" },
           "paymentId": { "type": "string", "description": "To'lovning server yaratgan IDsi; id bilan bir xil" },
@@ -1056,6 +1089,7 @@
           "dailyPlanId": { "type": "string", "nullable": true, "description": "Reja orqali to'lovda reja ID si; oddiy va boshlang'ich to'lovlarda null" },
           "paidAt": { "type": "string", "format": "date-time", "description": "To'lov qabul qilingan haqiqiy sana" },
           "forMonth": { "type": "string", "nullable": true, "pattern": "^(?!0000)[0-9]{4}-(0[1-9]|1[0-2])$", "description": "Qaysi oy uchun to'landi; boshlang'ich va eski oy ko'rsatilmagan to'lovlarda null", "example": "2026-06" },
+          "allocations": { "type": "array", "description": "Faol to'lovning oylik rejalarga taqsimoti; ortiqcha summa keyingi oylarga o'tadi. Oxirgi rejadan oshgan qism faqat payment.amount da saqlanadi.", "items": { "type": "object", "required": ["month", "amount"], "properties": { "month": { "type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$" }, "amount": { "type": "integer" } } } },
           "cardLast4": { "type": "string", "nullable": true, "pattern": "^[0-9]{4}$", "description": "card yoki payment_app uchun karta raqamining faqat oxirgi 4 raqami; eski yozuvlarda null" },
           "provider": { "$ref": "#/components/schemas/PaymentProvider", "nullable": true },
           "providerName": { "type": "string", "nullable": true, "description": "provider=other uchun ilova nomi" },

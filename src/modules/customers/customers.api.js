@@ -4,6 +4,7 @@ const { methodIds, validProviderCode, paymentDetails } = require('../payments/pa
 const { balanceSnapshot, paymentSnapshot, auditEntry, publicAudit } = require('../payments/payment-audit');
 const { paymentRequestHash, validIdempotencyKey } = require('../payments/payment-idempotency');
 const { withPaymentBalances } = require('../payments/payment-balances');
+const { syncPaymentAllocations } = require('../payments/payment-allocations');
 const { localDate } = require('../reports/reports.service');
 const { withRollback } = require('./rollback');
 
@@ -166,6 +167,7 @@ function publicPayment(payment) {
     dailyPlanId: payment.dailyPlanId?.toString() ?? null,
     paidAt: payment.paidAt,
     forMonth: payment.forMonth ?? null,
+    allocations: payment.allocations ?? [],
     cardLast4: payment.cardLast4 ?? null,
     provider: payment.provider ?? null,
     providerName: payment.providerName ?? null,
@@ -382,6 +384,7 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
         receivedBy: actor._id,
         paidAt: createdAt,
         status: 'active',
+        allocations: [],
         ...initialDetails,
       } : null;
       const document = {
@@ -576,6 +579,7 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
             remainingBalance: customer.remainingBalance, ...restoreMetadata(customer, ['updatedAt', 'updatedBy']).$set },
             $unset: restoreMetadata(customer, ['updatedAt', 'updatedBy']).$unset }));
         if (!updated) { const error = new Error('Mijoz bir vaqtda o‘zgartirilgan.'); error.status = 409; throw error; }
+        await syncPaymentAllocations(updated, payments, step);
         audit = auditEntry({ action: 'customer.terms_updated', customer: updated, actor: res.locals.currentUser,
           createdAt: changedAt, reason: body.reason.trim(),
           before: { totalPrice: customer.totalPrice, termMonths: customer.termMonths, remainingBalance: customer.remainingBalance },
@@ -678,6 +682,8 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
           }
           await step(() => payments.insertOne({ ...payment, customerId: updated._id, mijoz_id: updated.mijoz_id }),
             () => payments.deleteOne({ _id: payment._id }));
+          const allocationResult = await syncPaymentAllocations(updated, payments, step);
+          payment.allocations = allocationResult.allocations.get(payment._id.toString()) ?? [];
           const paymentAudit = auditEntry({ action: 'payment.created', customer: updated, payment,
             actor: res.locals.currentUser, createdAt: payment.paidAt,
             before: { balance: { downPayment: updated.downPayment, totalPaid: updated.totalPaid - amount,
@@ -822,6 +828,10 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
             const error = new Error('Rejadagi to‘lov mos kelmadi.'); error.status = 409; throw error;
           }
         }
+        const allocationResult = await syncPaymentAllocations(updatedCustomer, payments, step);
+        if (updatedPayment.type === 'installment') {
+          updatedPayment.allocations = allocationResult.allocations.get(updatedPayment._id.toString()) ?? [];
+        }
         audit = auditEntry({ action: 'payment.updated', customer: updatedCustomer, payment: updatedPayment,
           actor, createdAt: changedAt,
           before: { payment: paymentSnapshot(previous), balance: balanceSnapshot(customer) },
@@ -906,11 +916,14 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
         updatedPayment = await step(() => payments.findOneAndUpdate(
           { _id: paymentId, mijoz_id: mijozId, status: { $ne: 'voided' },
             revision: Object.hasOwn(previous, 'revision') ? previous.revision : { $exists: false } },
-          { $set: { status: 'voided', voidedAt, voidedBy: actor._id, voidReason: reason } },
+          { $set: { status: 'voided', voidedAt, voidedBy: actor._id, voidReason: reason,
+            allocations: [] } },
           { returnDocument: 'after' },
         ), () => updatedPayment && payments.updateOne({ _id: paymentId, status: 'voided', voidedAt },
-          { $set: { status: previous.status ?? 'active' },
-            $unset: { voidedAt: '', voidedBy: '', voidReason: '' } }));
+          { $set: { status: previous.status ?? 'active',
+            ...(previous.allocations !== undefined && { allocations: previous.allocations }) },
+            $unset: { voidedAt: '', voidedBy: '', voidReason: '',
+              ...(previous.allocations === undefined && { allocations: '' }) } }));
         if (!updatedPayment) {
           const error = new Error('To‘lov allaqachon bekor qilingan.'); error.status = 409; throw error;
         }
@@ -927,6 +940,7 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
         { $inc: Object.fromEntries(Object.entries(balanceChange).map(([key, value]) => [key, -value])),
           ...restoreMetadata(oldCustomer ?? {}) }));
         if (!updatedCustomer) throw new Error('To‘lov va mijoz balansi mos emas.');
+        await syncPaymentAllocations(updatedCustomer, payments, step);
         audit = auditEntry({ action: 'payment.voided', customer: updatedCustomer, payment: previous,
           actor, createdAt: voidedAt, reason,
           before: { payment: paymentSnapshot(previous), balance: {

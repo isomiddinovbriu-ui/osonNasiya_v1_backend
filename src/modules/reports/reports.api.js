@@ -1,6 +1,30 @@
-const { localDate, dateRange, overdueAmount, monthlyExpected, csv } = require('./reports.service');
+const { localDate, dateRange, overdueAmount, monthlyExpected, installmentDueDate, csv } = require('./reports.service');
+const { allocatePayments } = require('../payments/payment-allocations');
 
 function registerReportRoutes(app, { authenticate, customers, payments, regions, users, logger, now }) {
+  async function eachCustomerWithAllocation(cursor, visit) {
+    let batch = [];
+    async function flush() {
+      if (!batch.length) return;
+      const byId = new Map(batch.map((customer) => [customer._id.toString(), []]));
+      const rows = payments.find({ customerId: { $in: batch.map((customer) => customer._id) },
+        type: 'installment', status: { $ne: 'voided' } },
+      { projection: { customerId: 1, type: 1, amount: 1, forMonth: 1, paidAt: 1 } });
+      for await (const payment of rows) {
+        byId.get(payment.customerId?.toString())?.push(payment);
+      }
+      for (const customer of batch) {
+        await visit(customer, allocatePayments(customer, byId.get(customer._id.toString())).remaining);
+      }
+      batch = [];
+    }
+    for await (const customer of cursor) {
+      batch.push(customer);
+      if (batch.length === 500) await flush();
+    }
+    await flush();
+  }
+
   function requireAdmin(_req, res, next) {
     if (res.locals.currentUser.role !== 'super_admin') return res.status(403).json({ message: 'Hisobotlar faqat super_admin uchun.' });
     return next();
@@ -90,18 +114,22 @@ function registerReportRoutes(app, { authenticate, customers, payments, regions,
       const cursor = customers.find({ remainingBalance: { $gt: 0 } }, { projection: {
         totalPrice: 1, downPayment: 1, totalPaid: 1, remainingBalance: 1, termMonths: 1, createdAt: 1,
       } });
-      for await (const customer of cursor) {
+      await eachCustomerWithAllocation(cursor, async (customer, remaining) => {
         result.customerCount++;
         result.totalDebt += customer.remainingBalance;
-        const overdue = overdueAmount(customer, asOfDate);
-        if (overdue === null) {
+        if (overdueAmount(customer, asOfDate) === null) {
           result.unclassifiedCustomers++;
           result.unclassifiedDebt += customer.remainingBalance;
-        } else if (overdue > 0) {
+          return;
+        }
+        const created = localDate(customer.createdAt);
+        const overdue = [...remaining.values()].reduce((sum, amount, index) =>
+          sum + (installmentDueDate(created, index + 1) <= asOfDate ? amount : 0), 0);
+        if (overdue > 0) {
           result.overdueCustomers++;
           result.overdueDebt += overdue;
         }
-      }
+      });
       return sendReport(res, req.query.format, `debt-${asOfDate}.csv`,
         Object.keys(result).map((key) => [key, key]), [result], result);
     } catch (error) {
@@ -112,31 +140,14 @@ function registerReportRoutes(app, { authenticate, customers, payments, regions,
 
   async function annualDebts(req, res, { year, minAmount, maxAmount, page, limit }) {
     try {
-      const fromDate = new Date(Date.UTC(year, 0, 1, -5));
       const toExclusive = new Date(Date.UTC(year + 1, 0, 1, -5));
-      const totals = await payments.aggregate([
-        { $match: { type: 'installment', status: { $ne: 'voided' }, amount: { $gt: 0 }, $or: [
-          { forMonth: { $regex: `^${year}-(0[1-9]|1[0-2])$` } },
-          { forMonth: null, paidAt: { $gte: fromDate, $lt: toExclusive } },
-        ] } },
-        { $group: { _id: { customerId: '$customerId', month: { $ifNull: ['$forMonth',
-          { $dateToString: { format: '%Y-%m', date: '$paidAt', timezone: 'Asia/Tashkent' } }] } },
-          amount: { $sum: '$amount' } } },
-      ]).toArray();
-      const paidByCustomer = new Map();
-      for (const item of totals) {
-        if (!item._id?.customerId || !Number.isSafeInteger(item.amount)) continue;
-        const id = item._id.customerId.toString();
-        if (!paidByCustomer.has(id)) paidByCustomer.set(id, new Map());
-        paidByCustomer.get(id).set(item._id.month, item.amount);
-      }
       const rows = [];
       let total = 0;
       const cursor = customers.find({ remainingBalance: { $gt: 0 }, createdAt: { $lt: toExclusive } },
         { projection: { mijoz_id: 1, name: 1, phoneNumber: 1, productName: 1, regionId: 1, createdAt: 1,
           termMonths: 1, totalPrice: 1, downPayment: 1, totalPaid: 1, remainingBalance: 1 } })
         .sort({ mijoz_id: 1 });
-      for await (const customer of cursor) {
+      await eachCustomerWithAllocation(cursor, async (customer, remaining) => {
         const months = [];
         let monthlyAmount = 0;
         let paidAmount = 0;
@@ -145,23 +156,21 @@ function registerReportRoutes(app, { authenticate, customers, payments, regions,
           const month = `${year}-${String(number).padStart(2, '0')}`;
           const expected = monthlyExpected(customer, month);
           if (!expected || expected.amount <= 0) continue;
-          const paid = paidByCustomer.get(customer._id.toString())?.get(month) ?? 0;
-          const debt = paid >= expected.amount ||
-            customer.totalPaid - customer.downPayment >= expected.throughMonth
-            ? 0 : expected.amount - paid;
+          const debt = remaining.get(month) ?? 0;
+          const paid = expected.amount - debt;
           months.push({ month, monthlyAmount: expected.amount, paidAmount: paid, debtAmount: debt });
           monthlyAmount += expected.amount;
           paidAmount += paid;
           debtAmount += debt;
         }
-        if (!debtAmount || debtAmount < minAmount || debtAmount > maxAmount) continue;
+        if (!debtAmount || debtAmount < minAmount || debtAmount > maxAmount) return;
         total++;
-        if (total <= (page - 1) * limit || rows.length >= limit) continue;
+        if (total <= (page - 1) * limit || rows.length >= limit) return;
         rows.push({ mijoz_id: customer.mijoz_id, name: customer.name,
           phoneNumber: customer.phoneNumber ?? null, productName: customer.productName ?? null,
           createdAt: customer.createdAt?.toISOString() ?? null, regionId: customer.regionId?.toString() ?? null,
           monthlyAmount, paidAmount, debtAmount, remainingBalance: customer.remainingBalance, months });
-      }
+      });
       return sendReport(res, req.query.format, `yearly-debts-${year}-page-${page}.csv`,
         [['mijoz_id', 'mijoz_id'], ['name', 'name'], ['phoneNumber', 'phoneNumber'],
           ['regionId', 'regionId'], ['monthlyAmount', 'monthlyAmount'], ['paidAmount', 'paidAmount'],
@@ -222,31 +231,20 @@ function registerReportRoutes(app, { authenticate, customers, payments, regions,
     }
     try {
       const [year, monthNumber] = month.split('-').map(Number);
-      const fromDate = new Date(Date.UTC(year, monthNumber - 1, 1, -5));
       const toExclusive = new Date(Date.UTC(year, monthNumber, 1, -5));
-      const totals = await payments.aggregate([
-        { $match: { type: 'installment', status: { $ne: 'voided' }, amount: { $gt: 0 }, $or: [
-          { forMonth: month }, { forMonth: null, paidAt: { $gte: fromDate, $lt: toExclusive } },
-        ] } },
-        { $group: { _id: '$customerId', amount: { $sum: '$amount' } } },
-      ]).toArray();
-      const paidByCustomer = new Map(totals.filter((item) => item._id && Number.isFinite(item.amount))
-        .map((item) => [item._id.toString(), item.amount]));
       const rows = [];
       let total = 0;
       const cursor = customers.find({ remainingBalance: { $gt: 0 }, createdAt: { $lt: toExclusive } },
         { projection: { mijoz_id: 1, name: 1, phoneNumber: 1, productName: 1, regionId: 1, createdAt: 1, termMonths: 1,
           totalPrice: 1, downPayment: 1, totalPaid: 1, remainingBalance: 1 } }).sort({ mijoz_id: 1 });
-      for await (const customer of cursor) {
+      await eachCustomerWithAllocation(cursor, async (customer, remaining) => {
         const expected = monthlyExpected(customer, month);
-        if (!expected || expected.amount <= 0) continue;
-        const paidAmount = paidByCustomer.get(customer._id.toString()) ?? 0;
-        if (paidAmount >= expected.amount ||
-            customer.totalPaid - customer.downPayment >= expected.throughMonth) continue;
-        const shortfall = expected.amount - paidAmount;
-        if (filterByAmount && (shortfall < minAmount || shortfall > maxAmount)) continue;
+        if (!expected || expected.amount <= 0) return;
+        const shortfall = remaining.get(month) ?? 0;
+        if (shortfall <= 0 || filterByAmount && (shortfall < minAmount || shortfall > maxAmount)) return;
+        const paidAmount = expected.amount - shortfall;
         total++;
-        if (total <= (page - 1) * limit || rows.length >= limit) continue;
+        if (total <= (page - 1) * limit || rows.length >= limit) return;
         const row = { mijoz_id: customer.mijoz_id, name: customer.name,
           productName: customer.productName ?? null, createdAt: customer.createdAt?.toISOString() ?? null,
           regionId: customer.regionId?.toString() ?? null, monthlyAmount: expected.amount,
@@ -259,7 +257,7 @@ function registerReportRoutes(app, { authenticate, customers, payments, regions,
           row.remainingBalance = customer.remainingBalance;
         }
         rows.push(row);
-      }
+      });
       return sendReport(res, req.query.format, `${filterByAmount ? 'monthly-debts' : 'monthly-underpaid'}-${month}-page-${page}.csv`,
         [['mijoz_id', 'mijoz_id'], ['name', 'name'], ['regionId', 'regionId'],
           ['monthlyAmount', 'monthlyAmount'], ['paidAmount', 'paidAmount'], ['shortfall', 'shortfall'],

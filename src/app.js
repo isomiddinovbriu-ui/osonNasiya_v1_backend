@@ -11,6 +11,7 @@ const { registerCatalogRoutes } = require('./modules/catalog/catalog.api');
 const { registerPaymentRoutes } = require('./modules/payments/payments.api');
 const { registerVoidRequestRoutes } = require('./modules/payments/void-requests.api');
 const { registerReportRoutes } = require('./modules/reports/reports.api');
+const { registerDashboardRoutes } = require('./modules/dashboard/dashboard.api');
 const openapi = require('./openapi.json');
 
 const docsHtml = `<!doctype html>
@@ -69,6 +70,7 @@ function createApp({ users, loginRequests, refreshSessions, regions, customers, 
   registerPaymentRoutes(app, { authenticate, paymentApps, logger });
   if (paymentVoidRequests && dailyPlans) registerVoidRequestRoutes(app, { authenticate, paymentVoidRequests, payments, dailyPlans, logger, now });
   registerReportRoutes(app, { authenticate, customers, payments, regions, users, logger, now });
+  registerDashboardRoutes(app, { authenticate, customers, payments, logger, now });
   if (productCategories && products && imageStorage) {
     registerCatalogRoutes(app, { authenticate, productCategories, products, customers, counters, imageStorage, logger, now });
   }

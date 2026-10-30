@@ -8,6 +8,7 @@ const { createProductStorage } = require('./config/product-storage');
 const { prepareCustomerIds } = require('./modules/customers/customer-id.service');
 const { prepareProductIds } = require('./modules/catalog/product-id.service');
 const { migratePayments } = require('./modules/payments/payments.migrate');
+const { backfillPaymentAllocations } = require('./modules/payments/payment-allocations');
 const { seedPaymentApps } = require('./modules/payments/payment-apps.seed');
 const { closeExpiredPlans } = require('./modules/collections/daily-plans.api');
 
@@ -42,6 +43,7 @@ async function start() {
     await customers.createIndex({ regionId: 1, createdAt: -1 });
     await customers.createIndex({ assignedTo: 1, createdAt: -1 });
     await customers.createIndex({ assignedTo: 1, remainingBalance: 1, mijoz_id: 1 });
+    await customers.createIndex({ createdBy: 1, regionId: 1 });
     await contacts.createIndex({ customerId: 1, contactedAt: -1, _id: -1 });
     await contacts.createIndex({ contactedAt: -1, _id: -1 });
     await contacts.createIndex({ promisedDate: 1, customerId: 1 });
@@ -53,6 +55,7 @@ async function start() {
     await payments.createIndex({ customerId: 1, paidAt: 1 });
     await payments.createIndex({ forMonth: 1, customerId: 1 });
     await payments.createIndex({ paidAt: -1 });
+    await payments.createIndex({ receivedBy: 1, paidAt: 1, status: 1 });
     await paymentRequests.createIndex({ actorId: 1, key: 1 }, { unique: true });
     await paymentVoidRequests.createIndex({ paymentId: 1 },
       { unique: true, partialFilterExpression: { status: 'pending' } });
@@ -64,6 +67,7 @@ async function start() {
     await auditLogs.createIndex({ mijoz_id: 1, createdAt: -1, _id: -1 });
     await auditLogs.createIndex({ entityType: 1, entityId: 1, createdAt: -1 });
     await migratePayments(customers, payments);
+    await backfillPaymentAllocations(customers, payments);
     await seedPaymentApps(paymentApps);
     await productCategories.createIndex({ parentId: 1, nameKey: 1 }, { unique: true });
     await products.createIndex({ categoryId: 1, createdAt: -1 });
