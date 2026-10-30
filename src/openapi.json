@@ -1023,12 +1023,13 @@
       },
       "Payment": {
         "type": "object",
-        "required": ["id", "paymentId", "type", "amount", "method", "receivedBy", "dailyPlanId", "paidAt", "forMonth", "cardLast4", "provider", "providerName", "status", "voidedAt", "voidedBy", "voidReason"],
+        "required": ["id", "paymentId", "type", "amount", "remainingBalanceAfter", "method", "receivedBy", "dailyPlanId", "paidAt", "forMonth", "cardLast4", "provider", "providerName", "status", "voidedAt", "voidedBy", "voidReason"],
         "properties": {
           "id": { "type": "string" },
           "paymentId": { "type": "string", "description": "To'lovning server yaratgan IDsi; id bilan bir xil" },
           "type": { "type": "string", "enum": ["initial", "installment"] },
           "amount": { "type": "integer", "description": "So'mda" },
+          "remainingBalanceAfter": { "type": "integer", "nullable": true, "description": "Faol to'lovdan keyingi qolgan qarz. Bekor qilingan to'lovda null. Tarixdagi keyingi faol to'lovlar bekor qilishdan so'ng qayta hisoblanadi." },
           "method": { "$ref": "#/components/schemas/PaymentMethod" },
           "receivedBy": { "type": "string", "description": "To'lovni yozgan xodim IDsi" },
           "dailyPlanId": { "type": "string", "nullable": true, "description": "Reja orqali to'lovda reja ID si; oddiy va boshlang'ich to'lovlarda null" },
@@ -1040,6 +1041,7 @@
           "status": { "type": "string", "enum": ["active", "voided"], "description": "Eski to'lovlarda ham active qaytadi" },
           "voidedAt": { "type": "string", "format": "date-time", "nullable": true },
           "voidedBy": { "type": "string", "nullable": true, "description": "Bekor qilgan super_admin IDsi" },
+          "voidedByName": { "type": "string", "nullable": true, "description": "Bekor qilgan superadmin ismi yoki logini" },
           "voidReason": { "type": "string", "nullable": true, "description": "Bekor qilish sababi" }
         }
       },

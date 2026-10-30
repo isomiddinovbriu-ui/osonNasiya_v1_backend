@@ -3,6 +3,7 @@ const { nextCustomerId } = require('./customer-id.service');
 const { methodIds, validProviderCode, paymentDetails } = require('../payments/payment-options');
 const { balanceSnapshot, paymentSnapshot, auditEntry, publicAudit } = require('../payments/payment-audit');
 const { paymentRequestHash, validIdempotencyKey } = require('../payments/payment-idempotency');
+const { withPaymentBalances } = require('../payments/payment-balances');
 const { localDate } = require('../reports/reports.service');
 const { withRollback } = require('./rollback');
 
@@ -159,6 +160,7 @@ function publicPayment(payment) {
     paymentId: payment._id.toString(),
     type: payment.type,
     amount: payment.amount,
+    remainingBalanceAfter: payment.remainingBalanceAfter ?? null,
     method: payment.method,
     receivedBy: payment.receivedBy.toString(),
     dailyPlanId: payment.dailyPlanId?.toString() ?? null,
@@ -170,6 +172,7 @@ function publicPayment(payment) {
     status: payment.status ?? 'active',
     voidedAt: payment.voidedAt ?? null,
     voidedBy: payment.voidedBy?.toString() ?? null,
+    voidedByName: payment.voidedByName ?? null,
     voidReason: payment.voidReason ?? null,
   };
 }
@@ -195,7 +198,7 @@ function publicCustomer(customer) {
     totalPaid: customer.totalPaid,
     remainingBalance: customer.remainingBalance,
     description: customer.description,
-    payments: (customer.payments || []).map(publicPayment),
+    payments: withPaymentBalances(customer.totalPrice, customer.payments || []).map(publicPayment),
     createdBy: customer.createdBy.toString(),
     createdByRole: customer.createdByRole,
     createdAt: customer.createdAt,
@@ -249,8 +252,15 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
     if (!items.length) return items;
     const rows = await payments.find({ customerId: { $in: items.map((item) => item._id) } })
       .sort({ paidAt: 1, _id: 1 }).toArray();
+    const voiderIds = [...new Set(rows.filter((row) => row.voidedBy)
+      .map((row) => row.voidedBy.toString()))].map((id) => new ObjectId(id));
+    const voiders = voiderIds.length
+      ? await users.find({ _id: { $in: voiderIds } }).project({ name: 1, login: 1 }).toArray()
+      : [];
+    const voiderNames = new Map(voiders.map((user) => [user._id.toString(), user.name || user.login]));
     const byCustomer = new Map();
     for (const row of rows) {
+      if (row.voidedBy) row.voidedByName = voiderNames.get(row.voidedBy.toString()) ?? null;
       const key = row.customerId.toString();
       if (!byCustomer.has(key)) byCustomer.set(key, []);
       byCustomer.get(key).push(row);
@@ -676,14 +686,14 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
           paymentAudit._id = new ObjectId();
           await step(() => auditLogs.insertOne(paymentAudit), () => auditLogs.deleteOne({ _id: paymentAudit._id }));
           if (requestFilter) {
-            savedResponse = { paymentId: payment._id.toString(), payment: publicPayment(payment),
+            savedResponse = { paymentId: payment._id.toString(), payment: publicPayment({ ...payment, remainingBalanceAfter: updated.remainingBalance }),
               customer: publicCustomer((await withPayments([updated]))[0]) };
             const stored = await paymentRequests.updateOne(requestFilter, { $set: { response: savedResponse, paymentId: payment._id,
               customerId: updated._id, completedAt: payment.paidAt } });
             if (stored.matchedCount !== 1) throw new Error('Idempotency yozuvi topilmadi.');
           }
       }, logger);
-      return res.status(201).json(savedResponse ?? { paymentId: payment._id.toString(), payment: publicPayment(payment), customer: publicCustomer((await withPayments([updated]))[0]) });
+      return res.status(201).json(savedResponse ?? { paymentId: payment._id.toString(), payment: publicPayment({ ...payment, remainingBalanceAfter: updated.remainingBalance }), customer: publicCustomer((await withPayments([updated]))[0]) });
     } catch (error) {
       if (error.code === 11000 && requestFilter) {
         try {
