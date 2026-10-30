@@ -57,6 +57,8 @@ async function start() {
     await paymentVoidRequests.createIndex({ paymentId: 1 },
       { unique: true, partialFilterExpression: { status: 'pending' } });
     await dailyPlans.createIndex({ ownerId: 1, date: -1, regionId: 1 });
+    await dailyPlans.createIndex({ regionDateKey: 1 },
+      { unique: true, partialFilterExpression: { regionDateKey: { $exists: true } } });
     await payments.createIndex({ dailyPlanId: 1, paidAt: 1 });
     await closeExpiredPlans(dailyPlans, new Date());
     await auditLogs.createIndex({ mijoz_id: 1, createdAt: -1, _id: -1 });

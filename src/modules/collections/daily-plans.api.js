@@ -38,9 +38,34 @@ function registerDailyPlanRoutes(app, { authenticate, dailyPlans, regions, custo
     try {
       const regionId = new ObjectId(body.regionId);
       if (!await regions.findOne({ _id: regionId })) return res.status(404).json({ message: 'Hudud topilmadi.' });
-      const plan = { regionId, ownerId: actor._id, date, status: 'open', createdAt: nowDate,
+      async function useExisting(existing) {
+        if (!existing.ownerId.equals(actor._id)) {
+          return res.status(409).json({ message: 'Bu hudud uchun shu kunda boshqa yig‘uvchining rejasi mavjud.' });
+        }
+        if (existing.status !== 'closed') {
+          return res.status(409).json({ message: 'Bu hudud uchun shu kunda reja allaqachon ochilgan.' });
+        }
+        const reopened = await dailyPlans.findOneAndUpdate(
+          { _id: existing._id, ownerId: actor._id, date, status: 'closed' },
+          { $set: { status: 'open', closedAt: null, closeReason: null } },
+          { returnDocument: 'after' },
+        );
+        if (!reopened) return res.status(409).json({ message: 'Reja allaqachon ochilgan.' });
+        return res.json({ plan: publicPlan(reopened, localDate(nowDate)) });
+      }
+      const existing = await dailyPlans.findOne({ regionId, date });
+      if (existing) return await useExisting(existing);
+      const plan = { regionId, regionDateKey: `${regionId}:${date}`, ownerId: actor._id, date, status: 'open', createdAt: nowDate,
         closedAt: null, paymentCount: 0, totalAmount: 0, payments: [] };
-      const result = await dailyPlans.insertOne(plan);
+      let result;
+      try {
+        result = await dailyPlans.insertOne(plan);
+      } catch (error) {
+        if (error.code !== 11000) throw error;
+        const concurrent = await dailyPlans.findOne({ regionId, date });
+        if (!concurrent) throw error;
+        return await useExisting(concurrent);
+      }
       return res.status(201).json({ plan: publicPlan({ ...plan, _id: result.insertedId }, localDate(nowDate)) });
     } catch (error) {
       logger.error('Kunlik reja yaratishda xatolik:', error);
