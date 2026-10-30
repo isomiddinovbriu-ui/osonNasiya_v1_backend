@@ -671,8 +671,8 @@
     "/customers/{mijoz_id}/audit": {
       "get": {
         "tags": ["Payments"],
-        "summary": "Mijoz va to'lovlar audit tarixi (faqat super_admin)",
-        "description": "Yangi yozuvlar uchun yaratilish, mijoz ma'lumotlari va savdo shartlarini tuzatish hamda to'lovni bekor qilish voqealari. Oldingi yozuvlar uchun tarix orqaga qarab yaratilmaydi.",
+        "summary": "Mijoz va to'lovlar audit tarixi (barcha tizim foydalanuvchilari)",
+        "description": "Token bilan kirgan barcha rollar ko'ra oladi. Yangi yozuvlar uchun yaratilish, mijoz ma'lumotlari va savdo shartlarini tuzatish hamda to'lovni bekor qilish voqealari. before va after qiymatlari mavjud yozuvlarda qaytariladi; eski yozuvlar uchun tarix orqaga qarab yaratilmaydi.",
         "security": [{ "bearerAuth": [] }],
         "parameters": [
           { "name": "mijoz_id", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
@@ -683,7 +683,6 @@
           "200": { "description": "Audit voqealari", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuditListResponse" } } } },
           "400": { "$ref": "#/components/responses/BadRequest" },
           "401": { "$ref": "#/components/responses/Unauthorized" },
-          "403": { "$ref": "#/components/responses/Forbidden" },
           "404": { "$ref": "#/components/responses/CustomerNotFound" }
         }
       }

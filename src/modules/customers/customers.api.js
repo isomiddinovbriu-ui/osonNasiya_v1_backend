@@ -978,7 +978,6 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
   });
 
   app.get('/customers/:mijoz_id/audit', authenticate, async (req, res) => {
-    //if (res.locals.currentUser.role !== 'super_admin') return res.status(403).json({ message: 'Bu amal uchun ruxsat yo‘q.' });
     if (!validCustomerNumber(req.params.mijoz_id)) return res.status(400).json({ message: 'mijoz_id noto‘g‘ri.' });
     if (Object.keys(req.query).some((key) => !['page', 'limit'].includes(key)) ||
         Object.values(req.query).some((value) => typeof value !== 'string' || !/^[1-9]\d*$/.test(value))) {
