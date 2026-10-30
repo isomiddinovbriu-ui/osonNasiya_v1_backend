@@ -118,14 +118,26 @@ function registerDailyPlanRoutes(app, { authenticate, dailyPlans, regions, custo
     if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ message: 'Reja ID noto‘g‘ri.' });
     const page = req.query.page === undefined ? 1 : Number(req.query.page);
     const limit = req.query.limit === undefined ? 20 : Number(req.query.limit);
-    if (Object.keys(req.query).some((key) => !['page', 'limit'].includes(key)) ||
+    const search = req.query.search;
+    if (Object.keys(req.query).some((key) => !['page', 'limit', 'search'].includes(key)) ||
         !Number.isSafeInteger(page) || page < 1 || !Number.isSafeInteger(limit) || limit < 1 || limit > 100 ||
-        !Number.isSafeInteger((page - 1) * limit)) return res.status(400).json({ message: 'page yoki limit noto‘g‘ri.' });
+        !Number.isSafeInteger((page - 1) * limit) ||
+        (search !== undefined && (typeof search !== 'string' || !search.trim() || search.trim().length > 100))) {
+      return res.status(400).json({ message: 'page, limit yoki search noto‘g‘ri.' });
+    }
     try {
       const plan = await dailyPlans.findOne({ _id: new ObjectId(req.params.id) });
       if (!plan) return res.status(404).json({ message: 'Reja topilmadi.' });
       if (actor.role === 'yiguvchi' && !plan.ownerId.equals(actor._id)) return res.status(403).json({ message: 'Ruxsat yo‘q.' });
       const filter = { regionId: plan.regionId };
+      if (search !== undefined) {
+        const value = search.trim();
+        const pattern = new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+        filter.$or = [{ name: pattern }, { phoneNumber: pattern }, { addPhoneNumber: pattern }];
+        if (/^\d+$/.test(value)) {
+          filter.$or.push({ $expr: { $regexMatch: { input: { $toString: '$mijoz_id' }, regex: value } } });
+        }
+      }
       const [total, rows] = await Promise.all([
         customers.countDocuments(filter),
         customers.find(filter).project({ mijoz_id: 1, name: 1, phoneNumber: 1, address: 1,
