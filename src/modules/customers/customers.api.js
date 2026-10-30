@@ -728,18 +728,27 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
           const error = new Error('To‘lov allaqachon bekor qilingan.'); error.status = 409; throw error;
         }
         if (previous.dailyPlanId) {
-          if (!ObjectId.isValid(body.requestId)) {
-            const error = new Error('Rejadagi to‘lov uchun bekor qilish so‘rovi kerak.'); error.status = 409; throw error;
+          const requestId = ObjectId.isValid(body.requestId) ? new ObjectId(body.requestId) : null;
+          if (!requestId && !reason) {
+            const error = new Error('Bekor qilish sababini kiriting.'); error.status = 400; throw error;
           }
-          const request = await paymentVoidRequests.findOne({ _id: new ObjectId(body.requestId),
-            paymentId, customerId: previous.customerId, status: 'pending' });
-          if (!request) { const error = new Error('Ochiq bekor qilish so‘rovi topilmadi.'); error.status = 404; throw error; }
-          reason = request.reason;
-          const approved = await step(() => paymentVoidRequests.updateOne({ _id: request._id, status: 'pending' },
-            { $set: { status: 'approved', reviewedAt: voidedAt, reviewedBy: actor._id } }),
-            () => paymentVoidRequests.updateOne({ _id: request._id, status: 'approved', reviewedAt: voidedAt },
-              { $set: { status: 'pending' }, $unset: { reviewedAt: '', reviewedBy: '' } }));
-          if (approved.matchedCount !== 1) { const error = new Error('So‘rov allaqachon ko‘rilgan.'); error.status = 409; throw error; }
+          const request = requestId
+            ? await paymentVoidRequests.findOne({ _id: requestId, paymentId,
+              customerId: previous.customerId, status: 'pending' })
+            : await paymentVoidRequests.findOne({ paymentId, customerId: previous.customerId, status: 'pending' });
+          if (requestId && !request) {
+            const error = new Error('Ochiq bekor qilish so‘rovi topilmadi.'); error.status = 404; throw error;
+          }
+          if (request) {
+            if (requestId) reason = request.reason;
+            const approved = await step(() => paymentVoidRequests.updateOne({ _id: request._id, status: 'pending' },
+              { $set: { status: 'approved', reviewedAt: voidedAt, reviewedBy: actor._id } }),
+              () => paymentVoidRequests.updateOne({ _id: request._id, status: 'approved', reviewedAt: voidedAt },
+                { $set: { status: 'pending' }, $unset: { reviewedAt: '', reviewedBy: '' } }));
+            if (approved.matchedCount !== 1) {
+              const error = new Error('So‘rov allaqachon ko‘rilgan.'); error.status = 409; throw error;
+            }
+          }
           const planUpdate = await step(() => dailyPlans.updateOne({ _id: previous.dailyPlanId,
             payments: { $elemMatch: { paymentId, status: 'active' } } },
           { $set: { 'payments.$.status': 'voided' }, $inc: { paymentCount: -1, totalAmount: -previous.amount } }),

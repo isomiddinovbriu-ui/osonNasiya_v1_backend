@@ -629,7 +629,7 @@
       "post": {
         "tags": ["Payments"],
         "summary": "To'lovni sabab bilan bekor qilish (faqat super_admin)",
-        "description": "Kunlik rejaga bog'langan to'lov uchun pending bekor qilish so'rovi ID sini requestId sifatida yuboring. Eski rejaga bog'lanmagan to'lov uchun reason yuboring. Tasdiqda to'lov status=voided bo'ladi, mijoz balansi va rejaning faol jami summasi tranzaksiyada yangilanadi.",
+        "description": "Superadmin har qanday to'lovni sabab bilan bevosita bekor qilish uchun reason yuboradi. Pending bekor qilish so'rovini tasdiqlash uchun requestId yuboriladi. Tasdiqda to'lov status=voided bo'ladi, mijoz balansi va rejaning faol jami summasi tranzaksiyada yangilanadi.",
         "security": [{ "bearerAuth": [] }],
         "parameters": [
           { "name": "mijoz_id", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
@@ -642,7 +642,7 @@
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "403": { "$ref": "#/components/responses/Forbidden" },
           "404": { "$ref": "#/components/responses/CustomerNotFound" },
-          "409": { "description": "To'lov allaqachon bekor qilingan" }
+          "409": { "description": "To'lov allaqachon bekor qilingan yoki reja/to'lov ma'lumotlari mos kelmagan" }
         }
       }
     },
