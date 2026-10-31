@@ -201,6 +201,61 @@ function registerDashboardRoutes(app, { authenticate, customers, payments, logge
       return res.status(500).json({ message: 'Serverda xatolik yuz berdi.' });
     }
   });
+
+  app.get('/dashboard/collections/payments', authenticate, allowed, async (req, res) => {
+    let period;
+    let page;
+    let limit;
+    let category;
+    try {
+      const allowedFields = new Set(['date', 'receivedBy', 'regionId', 'category', 'page', 'limit']);
+      if (Object.keys(req.query).some((key) => !allowedFields.has(key))) throw new Error('Noma’lum parametr.');
+      period = params({ query: Object.fromEntries(Object.entries(req.query).filter(([key]) =>
+        ['date', 'receivedBy', 'regionId'].includes(key))) }, res, 'receivedBy');
+      category = req.query.category ?? 'all';
+      if (!['all', 'initial', 'installment'].includes(category)) throw new Error('category noto‘g‘ri.');
+      const number = (key, fallback, max) => {
+        const value = req.query[key] ?? fallback;
+        if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value) ||
+          !Number.isSafeInteger(Number(value)) || Number(value) > max) throw new Error(`${key} noto‘g‘ri.`);
+        return Number(value);
+      };
+      page = number('page', '1', Number.MAX_SAFE_INTEGER);
+      limit = number('limit', '20', 100);
+      if (!Number.isSafeInteger((page - 1) * limit)) throw new Error('page juda katta.');
+    } catch (error) { return res.status(error.status || 400).json({ message: error.message }); }
+    try {
+      const { date, day, employeeId, regionId, admin } = period;
+      const pipeline = [
+        { $match: { status: { $ne: 'voided' }, amount: { $gt: 0 }, customerId: { $exists: true, $ne: null },
+          paidAt: { $gte: day.start, $lt: day.end },
+          ...(employeeId && { receivedBy: employeeId }),
+          ...(category !== 'all' && { type: category }) } },
+        { $lookup: { from: 'customers', localField: 'customerId', foreignField: '_id', as: 'customer' } },
+        { $unwind: { path: '$customer', preserveNullAndEmptyArrays: !regionId } },
+        ...(regionId ? [{ $match: { 'customer.regionId': regionId } }] : []),
+        { $facet: {
+          count: [{ $count: 'total' }],
+          rows: [{ $sort: { paidAt: -1, _id: -1 } }, { $skip: (page - 1) * limit }, { $limit: limit },
+            { $project: { _id: 1, customerId: 1, amount: 1, type: 1, forMonth: 1, paidAt: 1,
+              'customer.mijoz_id': 1, 'customer.name': 1 } }],
+        } },
+      ];
+      const [data] = await payments.aggregate(pipeline).toArray();
+      res.set('Cache-Control', 'no-store');
+      return res.json({ scope: admin ? (employeeId || regionId ? 'filtered' : 'all') : 'me',
+        timezone: TIMEZONE, date, category, total: data?.count[0]?.total ?? 0, page, limit,
+        payments: (data?.rows ?? []).map((payment) => ({
+          paymentId: payment._id.toString(), customerId: payment.customerId.toString(),
+          mijoz_id: payment.customer?.mijoz_id ?? null, customerName: payment.customer?.name ?? null,
+          type: payment.type, amount: payment.amount, forMonth: payment.forMonth ?? null,
+          paidAt: payment.paidAt,
+        })) });
+    } catch (error) {
+      logger.error('Dashboard kunlik to‘lovlar ro‘yxati xatosi:', error);
+      return res.status(500).json({ message: 'Serverda xatolik yuz berdi.' });
+    }
+  });
 }
 
 module.exports = { registerDashboardRoutes };

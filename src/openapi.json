@@ -800,6 +800,22 @@
         "responses": { "200": { "description": "Qabul qilingan to'lovlar", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DashboardCollections" } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "$ref": "#/components/responses/Forbidden" } }
       }
     },
+    "/dashboard/collections/payments": {
+      "get": {
+        "tags": ["Dashboard"], "summary": "Kun davomida shaxsan qabul qilingan to'lovlar ro'yxati",
+        "description": "paidAt Toshkent vaqti bo'yicha date ichida bo'lgan faol to'lovlar qaytadi. Odatiy category=all boshlang'ich va keyingi to'lovlarni birga beradi; initial yoki installment bilan alohida olinadi. Xodim faqat o'zi receivedBy sifatida qayd etgan to'lovlarni ko'radi. Super_admin receivedBy va mijozning joriy regionId maydoni bilan filtrlay oladi. total to'lov yozuvlari soni, noyob mijozlar soni emas.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "category", "in": "query", "schema": { "type": "string", "enum": ["all", "initial", "installment"], "default": "all" } },
+          { "name": "receivedBy", "in": "query", "description": "Faqat super_admin", "schema": { "type": "string" } },
+          { "name": "regionId", "in": "query", "description": "Faqat super_admin", "schema": { "type": "string" } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1, "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } }
+        ],
+        "responses": { "200": { "description": "Kunlik to'lovlar ro'yxati", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DashboardCollectionPayments" } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "$ref": "#/components/responses/Forbidden" } }
+      }
+    },
     "/reports/revenue": {
       "get": {
         "tags": ["Reports"], "summary": "Kunlik yoki oylik tushum",
@@ -961,6 +977,8 @@
       "DashboardSalesPayments": { "type": "object", "required": ["scope", "timezone", "month", "category", "total", "page", "limit", "payments"], "properties": { "scope": { "type": "string", "enum": ["all", "me", "filtered"] }, "timezone": { "type": "string", "enum": ["Asia/Tashkent"] }, "month": { "type": "string" }, "category": { "type": "string", "enum": ["installment", "current_month", "other_month", "initial", "unassigned"] }, "total": { "type": "integer" }, "page": { "type": "integer" }, "limit": { "type": "integer" }, "payments": { "type": "array", "items": { "$ref": "#/components/schemas/DashboardSalesPayment" } } } },
       "DashboardCollectionPeriod": { "type": "object", "required": ["amount", "paymentCount", "customerCount", "initialAmount", "installmentAmount"], "properties": { "amount": { "type": "integer" }, "paymentCount": { "type": "integer" }, "customerCount": { "type": "integer" }, "initialAmount": { "type": "integer" }, "installmentAmount": { "type": "integer" } } },
       "DashboardCollections": { "type": "object", "required": ["scope", "timezone", "allTime", "month", "today"], "properties": { "scope": { "type": "string", "enum": ["all", "me", "filtered"] }, "timezone": { "type": "string", "enum": ["Asia/Tashkent"] }, "allTime": { "$ref": "#/components/schemas/DashboardCollectionPeriod" }, "month": { "allOf": [{ "$ref": "#/components/schemas/DashboardCollectionPeriod" }, { "type": "object", "required": ["month"], "properties": { "month": { "type": "string" } } }] }, "today": { "allOf": [{ "$ref": "#/components/schemas/DashboardCollectionPeriod" }, { "type": "object", "required": ["date"], "properties": { "date": { "type": "string", "format": "date" } } }] } } },
+      "DashboardCollectionPayment": { "type": "object", "required": ["paymentId", "customerId", "mijoz_id", "customerName", "type", "amount", "forMonth", "paidAt"], "properties": { "paymentId": { "type": "string" }, "customerId": { "type": "string" }, "mijoz_id": { "type": "integer", "nullable": true }, "customerName": { "type": "string", "nullable": true }, "type": { "type": "string", "enum": ["initial", "installment"] }, "amount": { "type": "integer" }, "forMonth": { "type": "string", "nullable": true }, "paidAt": { "type": "string", "format": "date-time" } } },
+      "DashboardCollectionPayments": { "type": "object", "required": ["scope", "timezone", "date", "category", "total", "page", "limit", "payments"], "properties": { "scope": { "type": "string", "enum": ["all", "me", "filtered"] }, "timezone": { "type": "string", "enum": ["Asia/Tashkent"] }, "date": { "type": "string", "format": "date" }, "category": { "type": "string", "enum": ["all", "initial", "installment"] }, "total": { "type": "integer" }, "page": { "type": "integer" }, "limit": { "type": "integer" }, "payments": { "type": "array", "items": { "$ref": "#/components/schemas/DashboardCollectionPayment" } } } },
       "CreateCategoryRequest": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string", "maxLength": 100, "example": "Texnika" }, "parentId": { "type": "string", "nullable": true, "description": "Texnika IDsi berilsa Telefon kabi bo'lim yaratiladi" } } },
       "Category": { "type": "object", "required": ["id", "name", "parentId", "createdBy", "createdAt"], "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "parentId": { "type": "string", "nullable": true }, "createdBy": { "type": "string" }, "createdAt": { "type": "string", "format": "date-time" }, "updatedAt": { "type": "string", "format": "date-time", "nullable": true } } },
       "CategoryResponse": { "type": "object", "properties": { "category": { "$ref": "#/components/schemas/Category" } } },
