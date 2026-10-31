@@ -46,6 +46,43 @@ function addPayment(bucket, payment) {
   if (payment.type === 'installment') bucket.installmentAmount += payment.amount;
 }
 
+function newSalesPeriod(key, value) {
+  return { [key]: value, dueRemainingAmount: 0, dueCustomerCount: 0,
+    paidAmount: 0, paidCustomerCount: 0,
+    initialPaidAmount: 0, initialPaidCustomerCount: 0,
+    otherMonthPaidAmount: 0, otherMonthPaidCustomerCount: 0,
+    unassignedPaidAmount: 0, unassignedPaidCustomerCount: 0 };
+}
+
+function addSalesPayment(period, customerSets, payment, month, customerId) {
+  let amountKey;
+  let countKey;
+  if (payment.type === 'initial') {
+    amountKey = 'initialPaidAmount';
+    countKey = 'initialPaidCustomerCount';
+  } else if (payment.type === 'installment' && payment.forMonth === month) {
+    amountKey = 'paidAmount';
+    countKey = 'paidCustomerCount';
+  } else if (payment.type === 'installment' && payment.forMonth) {
+    amountKey = 'otherMonthPaidAmount';
+    countKey = 'otherMonthPaidCustomerCount';
+  } else {
+    amountKey = 'unassignedPaidAmount';
+    countKey = 'unassignedPaidCustomerCount';
+  }
+  period[amountKey] += payment.amount;
+  customerSets[countKey].add(customerId);
+}
+
+function newSalesCustomerSets() {
+  return Object.fromEntries(['paidCustomerCount', 'initialPaidCustomerCount',
+    'otherMonthPaidCustomerCount', 'unassignedPaidCustomerCount'].map((key) => [key, new Set()]));
+}
+
+function finishSalesPeriod(period, customerSets) {
+  for (const [key, customers] of Object.entries(customerSets)) period[key] = customers.size;
+}
+
 function newBucket() {
   return { amount: 0, paymentCount: 0, customers: new Set(), initialAmount: 0, installmentAmount: 0 };
 }
@@ -56,4 +93,5 @@ function publicBucket(bucket) {
     installmentAmount: bucket.installmentAmount };
 }
 
-module.exports = { TIMEZONE, parsePeriod, outstandingByMonth, dueForPeriod, addPayment, newBucket, publicBucket };
+module.exports = { TIMEZONE, parsePeriod, outstandingByMonth, dueForPeriod, addPayment, newBucket, publicBucket,
+  newSalesPeriod, addSalesPayment, newSalesCustomerSets, finishSalesPeriod };

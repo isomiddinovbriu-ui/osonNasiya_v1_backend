@@ -1,5 +1,6 @@
 const { ObjectId } = require('mongodb');
-const { TIMEZONE, parsePeriod, outstandingByMonth, dueForPeriod, addPayment, newBucket, publicBucket } = require('./dashboard.service');
+const { TIMEZONE, parsePeriod, outstandingByMonth, dueForPeriod, addPayment, newBucket, publicBucket,
+  newSalesPeriod, addSalesPayment, newSalesCustomerSets, finishSalesPeriod } = require('./dashboard.service');
 const { localDate, installmentDueDate } = require('../reports/reports.service');
 
 function registerDashboardRoutes(app, { authenticate, customers, payments, logger, now }) {
@@ -36,13 +37,12 @@ function registerDashboardRoutes(app, { authenticate, customers, payments, logge
       const { date, month, day, monthDates, employeeId, regionId, admin } = period;
       const result = { scope: admin ? (employeeId || regionId ? 'filtered' : 'all') : 'me', asOfDate: date, timezone: TIMEZONE,
         soldAmount: 0, salesCount: 0, fullyPaidCount: 0, remainingAmount: 0, remainingCustomerCount: 0,
-        month: { month, dueRemainingAmount: 0, dueCustomerCount: 0, paidAmount: 0, paidCustomerCount: 0 },
-        today: { date, dueRemainingAmount: 0, dueCustomerCount: 0, paidAmount: 0, paidCustomerCount: 0 } };
+        month: newSalesPeriod('month', month), today: newSalesPeriod('date', date) };
       const filter = { ...(employeeId && { createdBy: employeeId }), ...(regionId && { regionId }) };
       const cursor = customers.find(filter, { projection: { _id: 1, totalPrice: 1, downPayment: 1,
         termMonths: 1, totalPaid: 1, remainingBalance: 1, createdAt: 1 } });
-      const monthPaidCustomers = new Set();
-      const dayPaidCustomers = new Set();
+      const monthPaidCustomers = newSalesCustomerSets();
+      const dayPaidCustomers = newSalesCustomerSets();
       const monthCutoff = new Date(Math.min(day.end.getTime(), monthDates.end.getTime()));
       const processBatch = async (batch) => {
         if (!batch.length) return;
@@ -58,12 +58,10 @@ function registerDashboardRoutes(app, { authenticate, customers, payments, logge
           if (!paymentsByCustomer.has(id)) paymentsByCustomer.set(id, []);
           paymentsByCustomer.get(id).push(payment);
           if (payment.paidAt >= monthDates.start && payment.paidAt < monthDates.end) {
-            result.month.paidAmount += payment.amount;
-            monthPaidCustomers.add(id);
+            addSalesPayment(result.month, monthPaidCustomers, payment, month, id);
           }
           if (payment.paidAt >= day.start && payment.paidAt < day.end) {
-            result.today.paidAmount += payment.amount;
-            dayPaidCustomers.add(id);
+            addSalesPayment(result.today, dayPaidCustomers, payment, date.slice(0, 7), id);
           }
         }
         for (const customer of batch) {
@@ -95,8 +93,8 @@ function registerDashboardRoutes(app, { authenticate, customers, payments, logge
         if (batch.length === 500) { await processBatch(batch); batch = []; }
       }
       await processBatch(batch);
-      result.month.paidCustomerCount = monthPaidCustomers.size;
-      result.today.paidCustomerCount = dayPaidCustomers.size;
+      finishSalesPeriod(result.month, monthPaidCustomers);
+      finishSalesPeriod(result.today, dayPaidCustomers);
       res.set('Cache-Control', 'no-store');
       return res.json(result);
     } catch (error) {
