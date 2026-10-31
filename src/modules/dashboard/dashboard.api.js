@@ -3,6 +3,20 @@ const { TIMEZONE, parsePeriod, outstandingByMonth, dueForPeriod, addPayment, new
   newSalesPeriod, addSalesPayment, newSalesCustomerSets, finishSalesPeriod } = require('./dashboard.service');
 const { localDate, installmentDueDate } = require('../reports/reports.service');
 
+function customerSearch(query) {
+  if (query.search === undefined) return null;
+  if (typeof query.search !== 'string') throw new Error('search noto‘g‘ri.');
+  const value = query.search.trim();
+  if (!value || value.length > 100) throw new Error('search 1–100 belgidan iborat bo‘lishi kerak.');
+  const pattern = new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+  const fields = ['name', 'phoneNumber', 'addPhoneNumber', 'address', 'productName', 'description'];
+  return { $or: [
+    ...fields.map((field) => ({ [`customer.${field}`]: pattern })),
+    ...(/^[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value)) ?
+      [{ 'customer.mijoz_id': Number(value) }] : []),
+  ] };
+}
+
 function registerDashboardRoutes(app, { authenticate, customers, payments, logger, now }) {
   function allowed(req, res, next) {
     if (res.locals.currentUser.role === 'product_creator') return res.status(403).json({ message: 'Bu amal uchun ruxsat yo‘q.' });
@@ -108,9 +122,11 @@ function registerDashboardRoutes(app, { authenticate, customers, payments, logge
     let page;
     let limit;
     let category;
+    let search;
     try {
-      const allowedFields = new Set(['month', 'createdBy', 'regionId', 'category', 'page', 'limit']);
+      const allowedFields = new Set(['month', 'createdBy', 'regionId', 'category', 'page', 'limit', 'search']);
       if (Object.keys(req.query).some((key) => !allowedFields.has(key))) throw new Error('Noma’lum parametr.');
+      search = customerSearch(req.query);
       period = params({ query: Object.fromEntries(Object.entries(req.query).filter(([key]) =>
         ['month', 'createdBy', 'regionId'].includes(key))) }, res, 'createdBy');
       category = req.query.category ?? 'installment';
@@ -144,12 +160,13 @@ function registerDashboardRoutes(app, { authenticate, customers, payments, logge
         { $lookup: { from: 'customers', localField: 'customerId', foreignField: '_id', as: 'customer' } },
         { $unwind: '$customer' },
         { $match: { ...(employeeId && { 'customer.createdBy': employeeId }),
-          ...(regionId && { 'customer.regionId': regionId }) } },
+          ...(regionId && { 'customer.regionId': regionId }), ...(search ?? {}) } },
         { $facet: {
           count: [{ $count: 'total' }],
           rows: [{ $sort: { paidAt: -1, _id: -1 } }, { $skip: (page - 1) * limit }, { $limit: limit },
             { $project: { _id: 1, amount: 1, type: 1, forMonth: 1, paidAt: 1,
-              'customer._id': 1, 'customer.mijoz_id': 1, 'customer.name': 1 } }],
+              'customer._id': 1, 'customer.mijoz_id': 1, 'customer.name': 1,
+              'customer.phoneNumber': 1, 'customer.addPhoneNumber': 1 } }],
         } },
       ];
       const [data] = await payments.aggregate(pipeline).toArray();
@@ -158,6 +175,8 @@ function registerDashboardRoutes(app, { authenticate, customers, payments, logge
         payments: (data?.rows ?? []).map((payment) => ({
           paymentId: payment._id.toString(), customerId: payment.customer._id.toString(),
           mijoz_id: payment.customer.mijoz_id, customerName: payment.customer.name,
+          phoneNumber: payment.customer.phoneNumber ?? null,
+          addPhoneNumber: payment.customer.addPhoneNumber ?? null,
           type: payment.type, amount: payment.amount, forMonth: payment.forMonth ?? null,
           paidAt: payment.paidAt,
           category: payment.type === 'initial' ? 'initial' :
@@ -207,9 +226,11 @@ function registerDashboardRoutes(app, { authenticate, customers, payments, logge
     let page;
     let limit;
     let category;
+    let search;
     try {
-      const allowedFields = new Set(['date', 'receivedBy', 'regionId', 'category', 'page', 'limit']);
+      const allowedFields = new Set(['date', 'receivedBy', 'regionId', 'category', 'page', 'limit', 'search']);
       if (Object.keys(req.query).some((key) => !allowedFields.has(key))) throw new Error('Noma’lum parametr.');
+      search = customerSearch(req.query);
       period = params({ query: Object.fromEntries(Object.entries(req.query).filter(([key]) =>
         ['date', 'receivedBy', 'regionId'].includes(key))) }, res, 'receivedBy');
       category = req.query.category ?? 'all';
@@ -233,12 +254,14 @@ function registerDashboardRoutes(app, { authenticate, customers, payments, logge
           ...(category !== 'all' && { type: category }) } },
         { $lookup: { from: 'customers', localField: 'customerId', foreignField: '_id', as: 'customer' } },
         { $unwind: { path: '$customer', preserveNullAndEmptyArrays: !regionId } },
-        ...(regionId ? [{ $match: { 'customer.regionId': regionId } }] : []),
+        ...(regionId || search ? [{ $match: { ...(regionId && { 'customer.regionId': regionId }),
+          ...(search ?? {}) } }] : []),
         { $facet: {
           count: [{ $count: 'total' }],
           rows: [{ $sort: { paidAt: -1, _id: -1 } }, { $skip: (page - 1) * limit }, { $limit: limit },
             { $project: { _id: 1, customerId: 1, amount: 1, type: 1, forMonth: 1, paidAt: 1,
-              'customer.mijoz_id': 1, 'customer.name': 1 } }],
+              'customer.mijoz_id': 1, 'customer.name': 1,
+              'customer.phoneNumber': 1, 'customer.addPhoneNumber': 1 } }],
         } },
       ];
       const [data] = await payments.aggregate(pipeline).toArray();
@@ -248,6 +271,8 @@ function registerDashboardRoutes(app, { authenticate, customers, payments, logge
         payments: (data?.rows ?? []).map((payment) => ({
           paymentId: payment._id.toString(), customerId: payment.customerId.toString(),
           mijoz_id: payment.customer?.mijoz_id ?? null, customerName: payment.customer?.name ?? null,
+          phoneNumber: payment.customer?.phoneNumber ?? null,
+          addPhoneNumber: payment.customer?.addPhoneNumber ?? null,
           type: payment.type, amount: payment.amount, forMonth: payment.forMonth ?? null,
           paidAt: payment.paidAt,
         })) });
