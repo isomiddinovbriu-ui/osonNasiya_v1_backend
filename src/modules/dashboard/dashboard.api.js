@@ -103,6 +103,74 @@ function registerDashboardRoutes(app, { authenticate, customers, payments, logge
     }
   });
 
+  app.get('/dashboard/sales/payments', authenticate, allowed, async (req, res) => {
+    let period;
+    let page;
+    let limit;
+    let category;
+    try {
+      const allowedFields = new Set(['month', 'createdBy', 'regionId', 'category', 'page', 'limit']);
+      if (Object.keys(req.query).some((key) => !allowedFields.has(key))) throw new Error('Noma’lum parametr.');
+      period = params({ query: Object.fromEntries(Object.entries(req.query).filter(([key]) =>
+        ['month', 'createdBy', 'regionId'].includes(key))) }, res, 'createdBy');
+      category = req.query.category ?? 'installment';
+      if (!['installment', 'current_month', 'other_month', 'initial', 'unassigned'].includes(category)) {
+        throw new Error('category noto‘g‘ri.');
+      }
+      const number = (key, fallback, max) => {
+        const value = req.query[key] ?? fallback;
+        if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value) ||
+          !Number.isSafeInteger(Number(value)) || Number(value) > max) throw new Error(`${key} noto‘g‘ri.`);
+        return Number(value);
+      };
+      page = number('page', '1', Number.MAX_SAFE_INTEGER);
+      limit = number('limit', '20', 100);
+      if (!Number.isSafeInteger((page - 1) * limit)) throw new Error('page juda katta.');
+    } catch (error) { return res.status(error.status || 400).json({ message: error.message }); }
+    try {
+      const { month, monthDates, employeeId, regionId, admin } = period;
+      const match = { status: { $ne: 'voided' }, amount: { $gt: 0 },
+        paidAt: { $gte: monthDates.start, $lt: monthDates.end } };
+      if (category === 'initial') match.type = 'initial';
+      else {
+        match.type = 'installment';
+        if (category === 'current_month') match.forMonth = month;
+        else if (category === 'other_month') match.forMonth = { $type: 'string', $ne: month };
+        else if (category === 'unassigned') match.forMonth = null;
+        else match.forMonth = { $type: 'string' };
+      }
+      const pipeline = [
+        { $match: match },
+        { $lookup: { from: 'customers', localField: 'customerId', foreignField: '_id', as: 'customer' } },
+        { $unwind: '$customer' },
+        { $match: { ...(employeeId && { 'customer.createdBy': employeeId }),
+          ...(regionId && { 'customer.regionId': regionId }) } },
+        { $facet: {
+          count: [{ $count: 'total' }],
+          rows: [{ $sort: { paidAt: -1, _id: -1 } }, { $skip: (page - 1) * limit }, { $limit: limit },
+            { $project: { _id: 1, amount: 1, type: 1, forMonth: 1, paidAt: 1,
+              'customer._id': 1, 'customer.mijoz_id': 1, 'customer.name': 1 } }],
+        } },
+      ];
+      const [data] = await payments.aggregate(pipeline).toArray();
+      const result = { scope: admin ? (employeeId || regionId ? 'filtered' : 'all') : 'me',
+        timezone: TIMEZONE, month, category, total: data?.count[0]?.total ?? 0, page, limit,
+        payments: (data?.rows ?? []).map((payment) => ({
+          paymentId: payment._id.toString(), customerId: payment.customer._id.toString(),
+          mijoz_id: payment.customer.mijoz_id, customerName: payment.customer.name,
+          type: payment.type, amount: payment.amount, forMonth: payment.forMonth ?? null,
+          paidAt: payment.paidAt,
+          category: payment.type === 'initial' ? 'initial' :
+            payment.forMonth === month ? 'current_month' : payment.forMonth ? 'other_month' : 'unassigned',
+        })) };
+      res.set('Cache-Control', 'no-store');
+      return res.json(result);
+    } catch (error) {
+      logger.error('Dashboard oylik to‘lovlar ro‘yxati xatosi:', error);
+      return res.status(500).json({ message: 'Serverda xatolik yuz berdi.' });
+    }
+  });
+
   app.get('/dashboard/collections', authenticate, allowed, async (req, res) => {
     let period;
     try { period = params(req, res, 'receivedBy'); }
