@@ -9,6 +9,7 @@ const { registerWorklistRoutes } = require('./modules/collections/worklist.api')
 const { registerDailyPlanRoutes } = require('./modules/collections/daily-plans.api');
 const { registerCatalogRoutes } = require('./modules/catalog/catalog.api');
 const { registerPaymentRoutes } = require('./modules/payments/payments.api');
+const { registerPaymentEditNotificationRoutes } = require('./modules/payments/payment-edit-notifications.api');
 const { registerVoidRequestRoutes } = require('./modules/payments/void-requests.api');
 const { registerReportRoutes } = require('./modules/reports/reports.api');
 const { registerDashboardRoutes } = require('./modules/dashboard/dashboard.api');
@@ -36,7 +37,7 @@ const docsHtml = `<!doctype html>
 </body>
 </html>`;
 
-function createApp({ users, loginRequests, refreshSessions, regions, customers, contacts, payments, paymentApps, paymentRequests, paymentVoidRequests, dailyPlans, auditLogs, counters, productCategories, products, imageStorage, jwtSecret, logger = console, now = Date.now }) {
+function createApp({ users, loginRequests, refreshSessions, regions, customers, contacts, payments, paymentApps, paymentRequests, paymentVoidRequests, paymentEditNotifications, dailyPlans, auditLogs, counters, productCategories, products, imageStorage, jwtSecret, logger = console, now = Date.now }) {
   if (!users || !loginRequests || !refreshSessions || !regions || !customers || !payments || !paymentApps || !paymentRequests || !auditLogs || !jwtSecret) throw new Error('users, loginRequests, refreshSessions, regions, customers, payments, paymentApps, paymentRequests, auditLogs va jwtSecret kerak.');
 
   const app = express();
@@ -63,11 +64,12 @@ function createApp({ users, loginRequests, refreshSessions, regions, customers, 
   registerAuthRoutes(app, { users, loginRequests, refreshSessions, jwtSecret, authenticate, logger, now });
   registerUserRoutes(app, { users, customers, authenticate, requireSuperAdmin, imageStorage, logger, now });
   registerRegionRoutes(app, { regions, customers, dailyPlans, authenticate, logger, now });
-  registerCustomerRoutes(app, { authenticate, users, customers, payments, paymentApps, paymentRequests, paymentVoidRequests, dailyPlans, auditLogs, counters, regions, productCategories, products, jwtSecret, logger, now });
+  registerCustomerRoutes(app, { authenticate, users, customers, payments, paymentApps, paymentRequests, paymentVoidRequests, paymentEditNotifications, dailyPlans, auditLogs, counters, regions, productCategories, products, jwtSecret, logger, now });
   if (contacts) registerContactRoutes(app, { authenticate, customers, contacts, payments, logger, now });
   registerWorklistRoutes(app, { authenticate, customers, logger, now });
   if (dailyPlans) registerDailyPlanRoutes(app, { authenticate, dailyPlans, regions, customers, logger, now });
   registerPaymentRoutes(app, { authenticate, paymentApps, logger });
+  if (paymentEditNotifications) registerPaymentEditNotificationRoutes(app, { authenticate, requireSuperAdmin, paymentEditNotifications, logger, now });
   if (paymentVoidRequests && dailyPlans) registerVoidRequestRoutes(app, { authenticate, paymentVoidRequests, payments, dailyPlans, logger, now });
   registerReportRoutes(app, { authenticate, customers, payments, regions, users, logger, now });
   registerDashboardRoutes(app, { authenticate, customers, payments, logger, now });

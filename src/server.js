@@ -29,6 +29,7 @@ async function start() {
     const payments = client.db().collection('payments');
     const paymentRequests = client.db().collection('payment_requests');
     const paymentVoidRequests = client.db().collection('payment_void_requests');
+    const paymentEditNotifications = client.db().collection('payment_edit_notifications');
     const dailyPlans = client.db().collection('daily_plans');
     const auditLogs = client.db().collection('audit_logs');
     const paymentApps = client.db().collection('payment_apps');
@@ -66,6 +67,8 @@ async function start() {
     await closeExpiredPlans(dailyPlans, new Date());
     await auditLogs.createIndex({ mijoz_id: 1, createdAt: -1, _id: -1 });
     await auditLogs.createIndex({ entityType: 1, entityId: 1, createdAt: -1 });
+    await paymentEditNotifications.createIndex({ createdAt: -1, _id: -1 });
+    await paymentEditNotifications.createIndex({ is_read: 1, createdAt: -1, _id: -1 });
     await migratePayments(customers, payments);
     await backfillPaymentAllocations(customers, payments);
     await seedPaymentApps(paymentApps);
@@ -83,6 +86,7 @@ async function start() {
       payments,
       paymentRequests,
       paymentVoidRequests,
+      paymentEditNotifications,
       dailyPlans,
       auditLogs,
       paymentApps,

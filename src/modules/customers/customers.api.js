@@ -249,7 +249,7 @@ function nearbyQuery(query) {
   return { lat, long, radiusMeters };
 }
 
-function registerCustomerRoutes(app, { authenticate, users, customers, payments, paymentApps, paymentRequests, paymentVoidRequests, dailyPlans, auditLogs, counters, regions, productCategories, products, jwtSecret, logger, now }) {
+function registerCustomerRoutes(app, { authenticate, users, customers, payments, paymentApps, paymentRequests, paymentVoidRequests, paymentEditNotifications, dailyPlans, auditLogs, counters, regions, productCategories, products, jwtSecret, logger, now }) {
   async function withPayments(items) {
     if (!items.length) return items;
     const rows = await payments.find({ customerId: { $in: items.map((item) => item._id) } })
@@ -838,6 +838,16 @@ function registerCustomerRoutes(app, { authenticate, users, customers, payments,
           after: { payment: paymentSnapshot(updatedPayment), balance: balanceSnapshot(updatedCustomer) } });
         audit._id = new ObjectId();
         await step(() => auditLogs.insertOne(audit), () => auditLogs.deleteOne({ _id: audit._id }));
+        if (actor.role !== 'super_admin' && paymentEditNotifications) {
+          const notification = {
+            _id: new ObjectId(), type: 'payment.updated', paymentId, customerId: updatedCustomer._id,
+            mijoz_id: mijozId, customerName: updatedCustomer.name ?? null,
+            actorId: actor._id, actorName: actor.name ?? actor.login ?? null, actorRole: actor.role,
+            createdAt: changedAt, auditId: audit._id, is_read: false, readAt: null,
+          };
+          await step(() => paymentEditNotifications.insertOne(notification),
+            () => paymentEditNotifications.deleteOne({ _id: notification._id }));
+        }
       }, logger);
       const hydrated = (await withPayments([updatedCustomer]))[0];
       return res.json({ payment: publicCustomer(hydrated).payments.find((item) => item.paymentId === paymentId.toString()),

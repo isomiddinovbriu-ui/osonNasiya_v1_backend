@@ -15,6 +15,7 @@
     { "name": "Contacts", "description": "Aloqa tarixi, keyingi aloqalar va to'lov va'dalari" },
     { "name": "Collections", "description": "Yig'uvchilarning kunlik hudud rejalari va ish ro'yxati" },
     { "name": "Payments", "description": "Mijoz to'lovlari" },
+    { "name": "Notifications", "description": "Super_admin uchun to'lov tahriri bildirishnomalari" },
     { "name": "Reports", "description": "Tushum, savdo, qarz va CSV eksport; oylik qarz hisobotlari barcha tizim xodimlariga, qolganlari faqat super_admin ga" },
     { "name": "Dashboard", "description": "Xodim savdosi va shaxsan qabul qilgan to'lovlar statistikasi" },
     { "name": "Catalog", "description": "Mahsulot guruhlari, bo'limlari va mahsulotlar" }
@@ -626,11 +627,30 @@
         }
       }
     },
+    "/notifications/payment-edits": {
+      "get": {
+        "tags": ["Notifications"], "summary": "To'lov tahriri bildirishnomalari (faqat super_admin)",
+        "description": "Faqat super_admin bo'lmagan xodimlar qilgan haqiqiy to'lov tahrirlari. Eng yangisi birinchi. unreadCount filtrdan qat'i nazar barcha o'qilmagan bildirishnomalar soni.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1, "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } },
+          { "name": "is_read", "in": "query", "schema": { "type": "boolean" } }
+        ],
+        "responses": { "200": { "description": "Bildirishnomalar", "content": { "application/json": { "schema": { "type": "object", "properties": { "notifications": { "type": "array", "items": { "$ref": "#/components/schemas/PaymentEditNotification" } }, "total": { "type": "integer" }, "unreadCount": { "type": "integer" }, "page": { "type": "integer" }, "limit": { "type": "integer" } } } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "$ref": "#/components/responses/Forbidden" } }
+      }
+    },
+    "/notifications/payment-edits/read-all": {
+      "patch": { "tags": ["Notifications"], "summary": "Barcha to'lov tahriri bildirishnomalarini o'qilgan qilish (faqat super_admin)", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "O'qilgan qilindi", "content": { "application/json": { "schema": { "type": "object", "properties": { "markedCount": { "type": "integer" } } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "$ref": "#/components/responses/Forbidden" } } }
+    },
+    "/notifications/payment-edits/{id}/read": {
+      "patch": { "tags": ["Notifications"], "summary": "Bitta to'lov tahriri bildirishnomasini o'qilgan qilish (faqat super_admin)", "description": "Takroriy so'rovda avvalgi readAt saqlanadi.", "security": [{ "bearerAuth": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[a-fA-F0-9]{24}$" } }], "responses": { "200": { "description": "O'qilgan bildirishnoma", "content": { "application/json": { "schema": { "type": "object", "properties": { "notification": { "$ref": "#/components/schemas/PaymentEditNotification" } } } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "description": "Bildirishnoma topilmadi" } } }
+    },
     "/customers/{mijoz_id}/payments/{paymentId}": {
       "patch": {
         "tags": ["Payments"],
         "summary": "To'lovni tahrirlash",
-        "description": "Superadmin istalgan faol to'lovni, boshqa xodim faqat o'zi yozgan faol to'lovni tahrirlaydi. Xodim amount va method (shu jumladan karta/ilova tafsilotlari) ni, faqat superadmin esa qo'shimcha ravishda forMonth ni o'zgartiradi. Boshlang'ich to'lov summasi o'zgarsa downPayment ham yangilanadi. Rejaga bog'langan to'lov summasi o'zgarsa reja jami ham yangilanadi. card yoki payment_app usuli yuborilganda cardNumber qayta yuborilishi kerak. Bekor qilingan to'lov tahrirlanmaydi.",
+        "description": "Superadmin istalgan faol to'lovni, boshqa xodim faqat o'zi yozgan faol to'lovni tahrirlaydi. Xodim amount va method (shu jumladan karta/ilova tafsilotlari) ni, faqat superadmin esa qo'shimcha ravishda forMonth ni o'zgartiradi. Boshlang'ich to'lov summasi o'zgarsa downPayment ham yangilanadi. Rejaga bog'langan to'lov summasi o'zgarsa reja jami ham yangilanadi. card yoki payment_app usuli yuborilganda cardNumber qayta yuborilishi kerak. Bekor qilingan to'lov tahrirlanmaydi. Super_admin bo'lmagan xodim haqiqiy o'zgarish qilsa, super_admin uchun bildirishnoma yaratiladi.",
         "security": [{ "bearerAuth": [] }],
         "parameters": [
           { "name": "mijoz_id", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
@@ -918,6 +938,7 @@
       }
     },
     "schemas": {
+      "PaymentEditNotification": { "type": "object", "required": ["id", "type", "paymentId", "customerId", "mijoz_id", "customerName", "actorId", "actorName", "actorRole", "createdAt", "auditId", "is_read", "readAt"], "properties": { "id": { "type": "string" }, "type": { "type": "string", "enum": ["payment.updated"] }, "paymentId": { "type": "string" }, "customerId": { "type": "string" }, "mijoz_id": { "type": "integer" }, "customerName": { "type": "string", "nullable": true }, "actorId": { "type": "string" }, "actorName": { "type": "string", "nullable": true }, "actorRole": { "type": "string", "enum": ["sotuvchi", "yiguvchi"] }, "createdAt": { "type": "string", "format": "date-time" }, "auditId": { "type": "string", "description": "O'zgarish tafsilotlarini /customers/{mijoz_id}/audit orqali olish mumkin" }, "is_read": { "type": "boolean" }, "readAt": { "type": "string", "format": "date-time", "nullable": true } } },
       "DashboardPeriod": { "type": "object", "required": ["dueRemainingAmount", "dueCustomerCount", "paidAmount", "paidCustomerCount"], "properties": { "dueRemainingAmount": { "type": "integer" }, "dueCustomerCount": { "type": "integer" }, "paidAmount": { "type": "integer" }, "paidCustomerCount": { "type": "integer" } } },
       "DashboardSales": { "type": "object", "required": ["scope", "asOfDate", "timezone", "soldAmount", "salesCount", "fullyPaidCount", "remainingAmount", "remainingCustomerCount", "month", "today"], "properties": { "scope": { "type": "string", "enum": ["all", "me", "filtered"] }, "asOfDate": { "type": "string", "format": "date" }, "timezone": { "type": "string", "enum": ["Asia/Tashkent"] }, "soldAmount": { "type": "integer" }, "salesCount": { "type": "integer" }, "fullyPaidCount": { "type": "integer" }, "remainingAmount": { "type": "integer" }, "remainingCustomerCount": { "type": "integer" }, "month": { "allOf": [{ "$ref": "#/components/schemas/DashboardPeriod" }, { "type": "object", "required": ["month"], "properties": { "month": { "type": "string" } } }] }, "today": { "allOf": [{ "$ref": "#/components/schemas/DashboardPeriod" }, { "type": "object", "required": ["date"], "properties": { "date": { "type": "string", "format": "date" } } }] } } },
       "DashboardCollectionPeriod": { "type": "object", "required": ["amount", "paymentCount", "customerCount", "initialAmount", "installmentAmount"], "properties": { "amount": { "type": "integer" }, "paymentCount": { "type": "integer" }, "customerCount": { "type": "integer" }, "initialAmount": { "type": "integer" }, "installmentAmount": { "type": "integer" } } },
