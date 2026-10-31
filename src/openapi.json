@@ -15,12 +15,45 @@
     { "name": "Contacts", "description": "Aloqa tarixi, keyingi aloqalar va to'lov va'dalari" },
     { "name": "Collections", "description": "Yig'uvchilarning kunlik hudud rejalari va ish ro'yxati" },
     { "name": "Payments", "description": "Mijoz to'lovlari" },
-    { "name": "Notifications", "description": "Super_admin uchun to'lov tahriri bildirishnomalari" },
+    { "name": "Notifications", "description": "To'lov tahriri va oylik to'lov bildirishnomalari" },
     { "name": "Reports", "description": "Tushum, savdo, qarz va CSV eksport; oylik qarz hisobotlari barcha tizim xodimlariga, qolganlari faqat super_admin ga" },
     { "name": "Dashboard", "description": "Xodim savdosi va shaxsan qabul qilgan to'lovlar statistikasi" },
     { "name": "Catalog", "description": "Mahsulot guruhlari, bo'limlari va mahsulotlar" }
   ],
   "paths": {
+    "/notifications/monthly-payments": {
+      "get": {
+        "tags": ["Notifications"],
+        "summary": "Oylik to'lov bildirishnomalari",
+        "description": "Toshkent vaqti bilan oy boshlangach shu oy ulushi bor mijozlar ko'rinadi. Holat amaldagi to'lovlardan har so'rovda qayta hisoblanadi: due (to'lanmagan), partial (qisman), paid (to'liq). Bekor qilingan to'lovlar hisobga olinmaydi. super_admin barcha mijozlarni, yiguvchi va sotuvchi faqat o'ziga biriktirilganlarni ko'radi. Bu in-app API; push xabari yubormaydi.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "month", "in": "query", "description": "YYYY-MM; berilmasa joriy Toshkent oyi. Kelajakdagi oy qabul qilinmaydi.", "schema": { "type": "string" } },
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["due", "partial", "paid", "all"], "default": "all" } },
+          { "name": "assignedTo", "in": "query", "description": "super_admin uchun mas'ul xodim IDsi", "schema": { "type": "string" } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1, "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } }
+        ],
+        "responses": { "200": { "description": "Joriy hisoblangan bildirishnomalar", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MonthlyPaymentNotifications" } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "$ref": "#/components/responses/Forbidden" } }
+      }
+    },
+    "/notifications/monthly-payments/search": {
+      "get": {
+        "tags": ["Notifications"],
+        "summary": "Oylik bildirishnomalarni mijoz bo'yicha qidirish",
+        "description": "q mijoz IDsi, ismi yoki telefonining bir qismi bilan qidiradi. month, status, assignedTo, page va limit filtrlari ro'yxat API si bilan bir xil.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "q", "in": "query", "required": true, "schema": { "type": "string", "minLength": 1, "maxLength": 100 } },
+          { "name": "month", "in": "query", "schema": { "type": "string" } },
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["due", "partial", "paid", "all"] } },
+          { "name": "assignedTo", "in": "query", "schema": { "type": "string" } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100 } }
+        ],
+        "responses": { "200": { "description": "Qidiruv natijasi", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MonthlyPaymentNotifications" } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "$ref": "#/components/responses/Forbidden" } }
+      }
+    },
     "/product-categories": {
       "post": { "tags": ["Catalog"], "summary": "Guruh yoki bo'lim yaratish (product_creator yoki super_admin)", "security": [{ "bearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateCategoryRequest" } } } }, "responses": { "201": { "description": "Yaratildi", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CategoryResponse" } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "403": { "$ref": "#/components/responses/Forbidden" }, "409": { "$ref": "#/components/responses/Conflict" } } },
       "get": { "tags": ["Catalog"], "summary": "Guruh va bo'limlar ro'yxati", "description": "parentId=null asosiy guruhlarni, parentId=<id> uning bo'limlarini beradi. search nom bo'yicha qidiradi (harf katta-kichikligiga sezgir emas) va parentId bilan birga ishlaydi. Natijalar createdAt bo'yicha eng yangisidan boshlab tartiblanadi.", "security": [{ "bearerAuth": [] }], "parameters": [{ "name": "parentId", "in": "query", "schema": { "type": "string" } }, { "name": "search", "in": "query", "schema": { "type": "string", "minLength": 1, "maxLength": 100 } }], "responses": { "200": { "description": "Ro'yxat", "content": { "application/json": { "schema": { "type": "object", "properties": { "categories": { "type": "array", "items": { "$ref": "#/components/schemas/Category" } } } } } } }, "400": { "$ref": "#/components/responses/BadRequest" } } }
@@ -1437,6 +1470,25 @@
         "shortfall": { "type": "integer", "description": "monthlyAmount - paidAmount; penya emas" },
         "status": { "type": "string", "enum": ["unpaid", "underpaid"] },
         "message": { "type": "string", "example": "Oylik to'lovdan kam to'landi" }
+      } },
+      "MonthlyPaymentNotifications": { "type": "object", "properties": {
+        "month": { "type": "string" },
+        "notifications": { "type": "array", "items": { "$ref": "#/components/schemas/MonthlyPaymentNotification" } },
+        "total": { "type": "integer" },
+        "counts": { "type": "object", "properties": { "due": { "type": "integer" }, "partial": { "type": "integer" }, "paid": { "type": "integer" } } },
+        "page": { "type": "integer" }, "limit": { "type": "integer" }
+      } },
+      "MonthlyPaymentNotification": { "type": "object", "properties": {
+        "id": { "type": "string", "description": "Oy va mijoz IDsi bo'yicha barqaror identifikator" },
+        "type": { "type": "string", "enum": ["monthly_payment"] },
+        "month": { "type": "string" }, "mijoz_id": { "type": "integer" },
+        "customerName": { "type": "string" }, "phoneNumber": { "type": "string", "nullable": true },
+        "regionId": { "type": "string", "nullable": true }, "assignedTo": { "type": "string", "nullable": true },
+        "dueDate": { "type": "string", "format": "date" },
+        "monthlyAmount": { "type": "integer" }, "paidAmount": { "type": "integer" },
+        "remainingAmount": { "type": "integer" },
+        "status": { "type": "string", "enum": ["due", "partial", "paid"] },
+        "message": { "type": "string" }
       } },
       "Error": {
         "type": "object",

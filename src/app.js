@@ -10,6 +10,7 @@ const { registerDailyPlanRoutes } = require('./modules/collections/daily-plans.a
 const { registerCatalogRoutes } = require('./modules/catalog/catalog.api');
 const { registerPaymentRoutes } = require('./modules/payments/payments.api');
 const { registerPaymentEditNotificationRoutes } = require('./modules/payments/payment-edit-notifications.api');
+const { registerMonthlyPaymentNotificationRoutes } = require('./modules/notifications/monthly-payment.api');
 const { registerVoidRequestRoutes } = require('./modules/payments/void-requests.api');
 const { registerReportRoutes } = require('./modules/reports/reports.api');
 const { registerDashboardRoutes } = require('./modules/dashboard/dashboard.api');
@@ -70,6 +71,7 @@ function createApp({ users, loginRequests, refreshSessions, regions, customers, 
   if (dailyPlans) registerDailyPlanRoutes(app, { authenticate, dailyPlans, regions, customers, logger, now });
   registerPaymentRoutes(app, { authenticate, paymentApps, logger });
   if (paymentEditNotifications) registerPaymentEditNotificationRoutes(app, { authenticate, requireSuperAdmin, paymentEditNotifications, logger, now });
+  registerMonthlyPaymentNotificationRoutes(app, { authenticate, customers, payments, logger, now });
   if (paymentVoidRequests && dailyPlans) registerVoidRequestRoutes(app, { authenticate, paymentVoidRequests, payments, dailyPlans, logger, now });
   registerReportRoutes(app, { authenticate, customers, payments, regions, users, logger, now });
   registerDashboardRoutes(app, { authenticate, customers, payments, logger, now });
